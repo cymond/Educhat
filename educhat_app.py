@@ -146,11 +146,11 @@ def generate_ai_response(character: Character, conversation_context: str, user_m
     # Try st.secrets first (Streamlit Cloud), then environment variables
     try:
         api_key = st.secrets["ANTHROPIC_API_KEY"]
-        model = st.secrets.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+        model = st.secrets.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
         st.info("🔑 Using Streamlit secrets for API key")
     except:
         api_key = os.getenv('ANTHROPIC_API_KEY')
-        model = os.getenv('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
+        model = os.getenv('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514')
         st.info("🔑 Using environment variables for API key")
     
     # Debug info for Streamlit Cloud (remove this after testing)
