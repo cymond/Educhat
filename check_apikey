@@ -1,0 +1,19 @@
+import requests
+API_KEY = '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'
+headers = {
+    'x-api-key': API_KEY,
+    'anthropic-version': '2023-06-01',
+    'Content-Type': 'application/json'
+}
+data = {
+    'model': 'claude-sonnet-4-20250514',  # Updated model name
+    'max_tokens': 50,
+    'messages': [
+        {
+            'role': 'user', 
+            'content': 'Hello Claude!'
+        }
+    ]
+}
+response = requests.post('https://api.anthropic.com/v1/messages', headers=headers, json=data)
+print(response.json())
