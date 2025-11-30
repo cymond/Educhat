@@ -143,20 +143,7 @@ def generate_ai_response(character: Character, conversation_context: str, user_m
     """Generate AI response using Anthropic API with character personality"""
     
     # Check if we have an API key configured
-    # Try st.secrets first (Streamlit Cloud), then environment variables
-    try:
-        api_key = st.secrets["ANTHROPIC_API_KEY"]
-        model = st.secrets.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
-        st.info("🔑 Using Streamlit secrets for API key")
-    except:
-        api_key = os.getenv('ANTHROPIC_API_KEY')
-        model = os.getenv('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
-        st.info("🔑 Using environment variables for API key")
-    
-    # Debug info for Streamlit Cloud (remove this after testing)
-    if api_key:
-        st.info(f"🔑 API Key found: {api_key[:10]}... (length: {len(api_key)})")
-        st.info(f"🤖 Using model: {model}")
+    api_key = os.getenv('ANTHROPIC_API_KEY')
     
     if not api_key or api_key == 'your_anthropic_api_key_here':
         # Fallback to placeholder responses if no API key
@@ -195,6 +182,7 @@ The user just said: "{user_message}"
 Respond naturally as {character.name} would."""
 
         # Call Anthropic API  
+        model = os.getenv('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')  # Fallback to stable model
         response = client.messages.create(
             model=model,
             max_tokens=150,
@@ -209,7 +197,7 @@ Respond naturally as {character.name} would."""
         
     except Exception as e:
         # Graceful fallback if API call fails
-        st.error(f"🔄 AI service error: {str(e)}")
+        st.error(f"🔄 AI service temporarily unavailable: {str(e)}")
         return f"[{character.name} would respond here, but I'm having connection issues. Please try again!]"
 
 def display_message(message: Message):
