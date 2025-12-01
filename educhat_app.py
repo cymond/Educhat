@@ -1,6 +1,7 @@
 """
 EduChat - AI Educational Group Chat Platform
 Built with Streamlit for interactive learning conversations
+Now with persistent user profiles and conversation history!
 """
 
 import streamlit as st
@@ -15,8 +16,17 @@ from typing import List, Dict, Any, Optional
 import pandas as pd
 from dotenv import load_dotenv
 
+# Import our new database models
+from database_models import EduChatDatabase, UserManager, User, ConversationRecord
+
 # Load environment variables from .env file
 load_dotenv()
+
+# Initialize database
+@st.cache_resource
+def init_database():
+    """Initialize database connection (cached for performance)"""
+    return EduChatDatabase()
 
 # Configure Streamlit
 st.set_page_config(
@@ -146,11 +156,11 @@ def generate_ai_response(character: Character, conversation_context: str, user_m
     # Try st.secrets first (Streamlit Cloud), then environment variables
     try:
         api_key = st.secrets["ANTHROPIC_API_KEY"]
-        model = st.secrets.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+        model = st.secrets.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
         st.info("🔑 Using Streamlit secrets for API key")
     except:
         api_key = os.getenv('ANTHROPIC_API_KEY')
-        model = os.getenv('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514')
+        model = os.getenv('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
         st.info("🔑 Using environment variables for API key")
     
     # Debug info for Streamlit Cloud (remove this after testing)
@@ -225,18 +235,49 @@ def display_message(message: Message):
             st.write(message.content)
 
 def main():
-    """Main Streamlit application"""
+    """Main Streamlit application with persistent user profiles"""
     
-    # Initialize session state
+    # Initialize database and user manager
+    db = init_database()
+    user_manager = UserManager(db)
+    
+    # User selection/creation interface
+    current_user = user_manager.show_user_selection()
+    
+    # If no user is selected, show welcome message and stop
+    if not current_user:
+        st.title("🎓 Welcome to EduChat!")
+        st.markdown("""
+        ### Your AI Learning Companions
+        
+        EduChat helps you learn through conversations with AI characters who have distinct personalities:
+        - **Aino** 🇫🇮 - Your Finnish language tutor and cultural guide
+        - **Mase** 🧠 - Witty knowledge-dropper who makes learning fun  
+        - **Anna** 💡 - Wise advisor with practical life lessons
+        - **Bee** 📊 - Data scientist who explains concepts analytically
+        
+        **👈 Create your profile in the sidebar to get started!**
+        """)
+        return
+    
+    # Initialize session state for this user
     if 'conversation_state' not in st.session_state:
         st.session_state.conversation_state = ConversationState()
     
-    if 'messages' not in st.session_state:
+    if 'messages' not in st.session_state or st.session_state.get('current_user_id') != current_user.id:
+        # New user or user switched - load their conversation history
+        st.session_state.current_user_id = current_user.id
         st.session_state.messages = []
-        # Add welcome message
+        
+        # Load most recent conversation or start fresh
+        recent_conversations = db.get_user_conversations(current_user.id, 1)
+        if recent_conversations:
+            st.sidebar.info(f"📚 Found {len(db.get_user_conversations(current_user.id))} previous conversations")
+        
+        # Add personalized welcome message
         welcome_msg = Message(
             sender="System",
-            content="Welcome to EduChat! 🎓 Your AI learning companions are here to help. What would you like to explore today?",
+            content=f"Welcome back, {current_user.name}! 🎓 Your AI learning companions remember you. What would you like to explore today?",
             character_color="#F5F5F5"
         )
         st.session_state.messages.append(welcome_msg)
@@ -244,9 +285,13 @@ def main():
     if 'generating' not in st.session_state:
         st.session_state.generating = False
     
-    # Sidebar for controls and analytics
+    # Sidebar for controls and analytics  
     with st.sidebar:
         st.title("🎓 EduChat Controls")
+        
+        # User info and analytics
+        user_manager.show_user_analytics(current_user)
+        st.markdown("---")
         
         # Conversation settings
         st.subheader("Settings")
@@ -261,11 +306,19 @@ def main():
         max_rounds = st.slider("Rounds per topic", 1, 5, 3)
         st.session_state.conversation_state.max_rounds = max_rounds
         
-        # Character info
-        st.subheader("Active Characters")
+        # Character info with personalization hints
+        st.subheader("Your Learning Companions")
         for char_name, char in st.session_state.conversation_state.characters.items():
             with st.expander(f"{char_name}"):
                 st.write(f"**Role:** {char.description}")
+                
+                # Show character memories if available
+                memories = db.get_character_memories(char_name, current_user.id, 2)
+                if memories:
+                    st.write("**Remembers about you:**")
+                    for memory in memories:
+                        st.write(f"• {memory['content']}")
+                
                 st.write(f"**Style:** {char.speaking_style[:100]}...")
         
         # Quick topic buttons
@@ -274,7 +327,7 @@ def main():
         
         with col1:
             if st.button("🇫🇮 Finnish Lesson", use_container_width=True):
-                st.session_state.pending_topic = "Let's practice Finnish! Can you help me with basic greetings?"
+                st.session_state.pending_topic = f"Hi Aino! I'd like to practice Finnish today. What should we learn?"
         
         with col2:
             if st.button("📚 Study Help", use_container_width=True):
@@ -294,7 +347,7 @@ def main():
                 for msg in st.session_state.messages
             ])
             
-            st.metric("Messages Exchanged", len(messages_df))
+            st.metric("Messages This Session", len(messages_df))
             
             # Character participation
             char_counts = messages_df[messages_df['sender'] != 'You']['sender'].value_counts()
@@ -331,7 +384,7 @@ def main():
         conv_state = st.session_state.conversation_state
         conv_state.initialize_round(user_input)
         
-        # Generate AI responses
+        # Generate AI responses with character memory
         st.session_state.generating = True
         
         # Progress indicator
@@ -354,13 +407,23 @@ def main():
                 # Add typing delay for realism
                 time.sleep(1.5)
                 
-                # Generate response
+                # Build conversation context with character memory
                 conversation_context = "\n".join([
                     f"{msg.sender}: {msg.content}" 
                     for msg in st.session_state.messages[-5:]  # Last 5 messages
                 ])
                 
-                response = generate_ai_response(character, conversation_context, user_input)
+                # Get character memories to personalize response
+                memories = db.get_character_memories(character.name, current_user.id, 3)
+                memory_context = ""
+                if memories:
+                    memory_context = "You remember: " + "; ".join([m['content'] for m in memories])
+                
+                response = generate_ai_response(
+                    character, 
+                    conversation_context + "\n" + memory_context, 
+                    user_input
+                )
                 
                 # Add character message
                 char_msg = Message(
@@ -370,6 +433,20 @@ def main():
                 )
                 st.session_state.messages.append(char_msg)
                 display_message(char_msg)
+                
+                # Store character memory about this interaction
+                if not response.startswith('[Error'):
+                    # Simple memory extraction - in production we'd use more sophisticated analysis
+                    if any(word in user_input.lower() for word in ['like', 'enjoy', 'love']):
+                        db.store_character_memory(
+                            character.name, current_user.id, 'preference',
+                            f"User enjoys discussing {user_input.lower()}", 6
+                        )
+                    elif any(word in user_input.lower() for word in ['finnish', 'suomi']):
+                        db.store_character_memory(
+                            character.name, current_user.id, 'learning',
+                            f"User practiced Finnish: {user_input[:50]}", 7
+                        )
         
         finally:
             # Cleanup
@@ -377,12 +454,30 @@ def main():
             status_text.empty()
             st.session_state.generating = False
             
+            # Save conversation to database
+            if current_user:
+                conversation_record = ConversationRecord(
+                    user_id=current_user.id,
+                    title=f"Chat about: {user_input[:30]}...",
+                    topic=user_input[:50],
+                    character_set=[char.name for char in st.session_state.conversation_state.characters.values()],
+                    conversation_mode=conversation_mode,
+                    total_rounds=conv_state.current_round,
+                    total_messages=len(st.session_state.messages),
+                    messages=[{
+                        'sender': msg.sender,
+                        'content': msg.content,
+                        'timestamp': msg.timestamp
+                    } for msg in st.session_state.messages]
+                )
+                db.save_conversation(conversation_record)
+            
             # Check if round/conversation is complete
             if conv_state.is_round_complete():
                 if conv_state.should_end_conversation():
                     completion_msg = Message(
                         sender="System",
-                        content=f"Great conversation! 🎉 Ready for a new topic?",
+                        content=f"Great conversation, {current_user.name}! 🎉 Ready for a new topic?",
                         character_color="#E8F5E8"
                     )
                     st.session_state.messages.append(completion_msg)
