@@ -1,14 +1,7 @@
-# Cleaned and corrected version of educhat_app.py
-# Emoji fixed, formatting cleaned, and minor bugs fixed.
-
-# NOTE: Due to message size limits, I will provide the full corrected code in sequential chunks.
-# Tell me "continue" and I will paste the next block.
-
-# --- START OF CLEANED FILE (Part 1) ---
-
 """
 EduChat - AI Educational Group Chat Platform
-Cleaned version: All mojibake emojis fixed, code tidied, and small bugs corrected.
+Built with Streamlit for interactive learning conversations
+Now with persistent user profiles and conversation history!
 """
 
 import streamlit as st
@@ -23,61 +16,71 @@ from typing import List, Dict, Any, Optional
 import pandas as pd
 from dotenv import load_dotenv
 
+# Import our new database models
 from database_models import UserManager, User, ConversationRecord
+
+# Import the new optimization modules
 from optimized_database import OptimizedEduChatDatabase
 from memory_system import AdvancedMemoryEngine, MemoryItem
 
+# Load environment variables from .env file
 load_dotenv()
 
+# Initialize database
 @st.cache_resource
 def init_database():
+    """Initialize optimized database connection (cached for performance)"""
     return OptimizedEduChatDatabase()
 
-@st.cache_resource
+@st.cache_resource  
 def init_memory_engine():
+    """Initialize enhanced memory engine"""
     db = init_database()
     return AdvancedMemoryEngine(db)
 
+# Configure Streamlit
 st.set_page_config(
-    page_title="EduChat - AI Learning Companions",
-    page_icon="🎓",
+    page_title="EduChat - AI Learning Companions", 
+    page_icon="ðŸŽ“",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 @dataclass
 class Character:
+    """Character definition with personality and behavior patterns"""
     name: str
     description: str
     speaking_style: str
     color: str
     personality_traits: List[str] = field(default_factory=list)
     knowledge_domains: List[str] = field(default_factory=list)
-
-    def get_style_prompt(self):
+    
+    def get_style_prompt(self) -> str:
+        """Generate AI prompt style instructions for this character"""
         return f"""
-You are {self.name}, a character in an educational group chat.
+        You are {self.name}, a character in an educational group chat.
+        
+        Character Description: {self.description}
+        Speaking Style: {self.speaking_style}
+        Personality Traits: {', '.join(self.personality_traits)}
+        Knowledge Areas: {', '.join(self.knowledge_domains)}
+        
+        IMPORTANT: Stay completely in character. Keep responses conversational and brief (1-3 sentences).
+        """
 
-Character Description: {self.description}
-Speaking Style: {self.speaking_style}
-Personality Traits: {', '.join(self.personality_traits)}
-Knowledge Areas: {', '.join(self.knowledge_domains)}
-
-IMPORTANT: Stay completely in character (1–3 sentence replies).
-"""
-
-# --- PART 2: ConversationState and Message classes ---
-
-@dataclass
+@dataclass 
 class Message:
+    """Chat message with metadata"""
     sender: str
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
     character_color: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
-
 class ConversationState:
+    """Manages conversation flow and character interactions"""
+    
     def __init__(self):
         self.characters = self._create_default_characters()
         self.current_round = 0
@@ -86,244 +89,272 @@ class ConversationState:
         self.current_speaker_index = 0
         self.conversation_mode = "balanced"
         self.pending_user_message = None
-
+        
     def _create_default_characters(self) -> Dict[str, Character]:
+        """Create the default character set for Finnish learning"""
         return {
             "Aino": Character(
                 name="Aino",
-                description="Native Finnish speaker, patient teacher, cultural guide",
-                speaking_style="Very short supportive explanations, include Finnish cultural notes.",
-                color="#E3F2FD",
+                description="Native Finnish speaker, patient teacher, explains cultural context",
+                speaking_style="Keep responses very short (1-2 sentences max). Patient and encouraging. Include Finnish cultural insights.",
+                color="#E3F2FD",  # Light blue
                 personality_traits=["patient", "encouraging", "cultural_expert"],
-                knowledge_domains=["finnish_language", "culture", "pronunciation"],
+                knowledge_domains=["finnish_language", "culture", "pronunciation"]
             ),
             "Mase": Character(
-                name="Mase",
-                description="Witty young adult, brief but insightful, jokes casually",
-                speaking_style="Very short with jokes, hinting at deeper ideas.",
-                color="#E8F5E8",
+                name="Mase", 
+                description="Young adult, surprisingly knowledgeable, jokes regularly, extremely brief",
+                speaking_style="Keep responses very short (1-2 sentences max). Drop knowledge casually. Make jokes. Leave things unsaid to prompt follow-ups.",
+                color="#E8F5E8",  # Light green
                 personality_traits=["witty", "brief", "knowledgeable"],
-                knowledge_domains=["science", "technology", "trivia"],
+                knowledge_domains=["science", "technology", "trivia"]
             ),
             "Anna": Character(
                 name="Anna",
-                description="Middle‑aged mother, wise investor, fitness‑oriented vegan",
-                speaking_style="Plain-spoken clarity, Buffett‑like practical wisdom.",
-                color="#FFF3E0",
+                description="Middle-aged mother, expert investor, fitness enthusiast, vegan, wise", 
+                speaking_style="Speak plainly with Warren Buffett-like clarity. Offer calm, pragmatic wisdom. Reference fitness/discipline occasionally.",
+                color="#FFF3E0",  # Light orange
                 personality_traits=["wise", "practical", "calm"],
-                knowledge_domains=["finance", "health", "life_advice"],
+                knowledge_domains=["finance", "health", "life_advice"]
             ),
             "Bee": Character(
                 name="Bee",
-                description="Data scientist, endurance athlete, explains concepts crisply",
-                speaking_style="Concise, analytical, references endurance training.",
-                color="#FCE4EC",
+                description="Late 20s female, data scientist, Python programmer, endurance athlete",
+                speaking_style="Share tech developments concisely. Explain concepts well. Mention endurance training. 'Train harder, not smarter.'",
+                color="#FCE4EC",  # Light pink
                 personality_traits=["technical", "athletic", "analytical"],
-                knowledge_domains=["data_science", "programming", "sports"],
-            ),
+                knowledge_domains=["data_science", "programming", "sports"]
+            )
         }
-
+    
     def initialize_round(self, user_message: str):
+        """Start a new round with user message"""
         self.pending_user_message = user_message
         self.speaker_queue = list(self.characters.keys())
         random.shuffle(self.speaker_queue)
         self.current_speaker_index = 0
         self.current_round += 1
-
+        
     def get_next_speaker(self) -> Optional[Character]:
+        """Get the next character to speak"""
         if self.current_speaker_index >= len(self.speaker_queue):
             return None
-        name = self.speaker_queue[self.current_speaker_index]
+        
+        speaker_name = self.speaker_queue[self.current_speaker_index]
         self.current_speaker_index += 1
-        return self.characters[name]
-
-    def is_round_complete(self):
+        return self.characters[speaker_name]
+    
+    def is_round_complete(self) -> bool:
+        """Check if current round is finished"""
         return self.current_speaker_index >= len(self.speaker_queue)
-
-    def should_end_conversation(self):
+    
+    def should_end_conversation(self) -> bool:
+        """Check if conversation should end"""
         return self.current_round >= self.max_rounds
-
+    
     def reset_for_new_topic(self):
+        """Reset conversation state for new topic"""
         self.current_round = 0
         self.speaker_queue = []
         self.current_speaker_index = 0
         self.pending_user_message = None
 
-# --- END PART 2 ---
-
-# --- PART 3: AI Response Generation ---
-
-import anthropic
-
-
 def generate_ai_response(character: Character, conversation_context: str, user_message: str) -> str:
-    """Generate AI response using Anthropic API with character personality."""
-
-    # Get API key
-    api_key = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
-    model = (
-        st.secrets.get("ANTHROPIC_MODEL")
-        or os.getenv("ANTHROPIC_MODEL")
-        or "claude-3-5-sonnet-20241022"
-    )
-
-    if not api_key:
-        fallback = {
-            "Aino": f"Hei! About '{user_message}' — in Finnish we say 'Tervetuloa oppimaan!' (Welcome to learning!)",
-            "Mase": f"*drops knowledge* Yeah, {user_message.lower()} is kinda wild...",
-            "Anna": f"Here's the practical angle on {user_message.lower()}: focus on the fundamentals.",
-            "Bee": f"If I analyze {user_message.lower()} like data, patterns start to emerge.",
-        }
-        return fallback.get(character.name, "I'd love to help with that!")
-
+    """Generate AI response using Anthropic API with character personality"""
+    
+    # Check if we have an API key configured
+    # Try st.secrets first (Streamlit Cloud), then environment variables
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-
-        system_prompt = f"""
-You are participating in an educational group chat as the character {character.name}.
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+        model = st.secrets.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+        st.info("ðŸ”‘ Using Streamlit secrets for API key")
+    except:
+        api_key = os.getenv('ANTHROPIC_API_KEY')
+        model = os.getenv('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
+        st.info("ðŸ”‘ Using environment variables for API key")
+    
+    # Debug info for Streamlit Cloud (remove this after testing)
+    if api_key:
+        st.info(f"ðŸ”‘ API Key found: {api_key[:10]}... (length: {len(api_key)})")
+        st.info(f"ðŸ¤– Using model: {model}")
+    
+    if not api_key or api_key == 'your_anthropic_api_key_here':
+        # Fallback to placeholder responses if no API key
+        st.warning("âš ï¸ Add ANTHROPIC_API_KEY to .env file for real AI responses")
+        fallback_responses = {
+            "Aino": f"Hei! About '{user_message}' - in Finnish we say 'Tervetuloa oppimaan!' (Welcome to learning!)",
+            "Mase": f"*drops knowledge* Yeah, {user_message.lower()} is actually pretty interesting...",
+            "Anna": f"Here's practical wisdom about {user_message.lower()}: focus on the fundamentals first.",
+            "Bee": f"If I analyze {user_message.lower()} like data... there are patterns here worth exploring."
+        }
+        return fallback_responses.get(character.name, "I'd love to help with that!")
+    
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+        
+        # Build the character-specific prompt
+        system_prompt = f"""You are participating in an educational group chat as the character {character.name}.
 
 {character.get_style_prompt()}
 
-CRITICAL RULES:
-- Stay completely in character
-- Keep responses short (1–3 sentences)
-- Be educational
-- Follow the personality constraints of the character
+CRITICAL INSTRUCTIONS:
+- Stay completely in character as {character.name}
+- Keep responses conversational and brief (1-3 sentences)
+- Be helpful and educational
+- If you're Aino, include Finnish language/cultural elements naturally
+- If you're Mase, be witty but informative
+- If you're Anna, offer practical wisdom
+- If you're Bee, bring analytical/data perspectives
 
-Recent conversation:
+Recent conversation context:
 {conversation_context}
 
-User said: "{user_message}"
-"""
+The user just said: "{user_message}"
 
+Respond naturally as {character.name} would."""
+
+        # Call Anthropic API  
         response = client.messages.create(
             model=model,
             max_tokens=150,
             temperature=0.7,
             system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
+            messages=[
+                {"role": "user", "content": user_message}
+            ]
         )
-
+        
         return response.content[0].text.strip()
-
+        
     except Exception as e:
-        return f"[Error contacting AI service: {e}]"
-
-
-# --- PART 4: Enhanced Memory-Aware Response ---
+        # Graceful fallback if API call fails
+        st.error(f"ðŸ”„ AI service error: {str(e)}")
+        return f"[{character.name} would respond here, but I'm having connection issues. Please try again!]"
 
 def generate_ai_response_enhanced(character, conversation_context, user_message, memory_engine, current_user):
-    api_key = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
-    model = (
-        st.secrets.get("ANTHROPIC_MODEL")
-        or os.getenv("ANTHROPIC_MODEL")
-        or "claude-3-5-sonnet-20241022"
-    )
-
-    if not api_key:
-        fallback = {
-            "Aino": f"Hei! For '{user_message}', I'd say: 'Tervetuloa oppimaan!'",
-            "Mase": f"Quick take: {user_message.lower()}? Interesting...",
-            "Anna": f"Here's the practical angle: master the basics first.",
-            "Bee": f"Data-wise, {user_message.lower()} points toward a clear pattern.",
-        }
-        return fallback.get(character.name, "I'd love to help!")
-
+    """Enhanced AI response generation with personalized memory context"""
+    
+    # Get API credentials (same as before)
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+        model = st.secrets.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+    except:
+        api_key = os.getenv('ANTHROPIC_API_KEY')
+        model = os.getenv('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
+    
+    if not api_key or api_key == 'your_anthropic_api_key_here':
+        # Same fallback as before
+        fallback_responses = {
+            "Aino": f"Hei! About '{user_message}' - in Finnish we say 'Tervetuloa oppimaan!' (Welcome to learning!)",
+            "Mase": f"*drops knowledge* Yeah, {user_message.lower()} is actually pretty interesting...",
+            "Anna": f"Here's practical wisdom about {user_message.lower()}: focus on the fundamentals first.",
+            "Bee": f"If I analyze {user_message.lower()} like data... there are patterns here worth exploring."
+        }
+        return fallback_responses.get(character.name, "I'd love to help with that!")
+    
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+        
+        # Get personalized context from memory engine
         personalized_context = memory_engine.build_character_context(
-            character.name,
-            current_user.id,
-            user_message,
+            character.name, current_user.id, user_message
         )
-
-        system_prompt = f"""
-You are {character.name}.
+        
+        # Build enhanced system prompt with memory context
+        system_prompt = f"""You are participating in an educational group chat as the character {character.name}.
 
 {character.get_style_prompt()}
 
-PERSONALIZED CONTEXT ABOUT THE USER:
+PERSONALIZED CONTEXT (what you remember about this user):
 {personalized_context}
 
-RULES:
-- Stay fully in character
-- Personalize replies using memory when helpful
-- Keep answers short and conversational
-- Be educational
+CRITICAL INSTRUCTIONS:
+- Stay completely in character as {character.name}
+- Use your memories about this user to personalize your response
+- Keep responses conversational and brief (1-3 sentences)
+- Be helpful and educational
+- Reference previous conversations or user preferences when relevant
+- If you're Aino, include Finnish language/cultural elements naturally
+- If you're Mase, be witty but informative  
+- If you're Anna, offer practical wisdom
+- If you're Bee, bring analytical/data perspectives
 
-Recent conversation:
+Recent conversation context:
 {conversation_context}
-"""
 
+The user just said: "{user_message}"
+
+Respond naturally as {character.name} would, incorporating what you remember about this user."""
+
+        # Call Anthropic API
         response = client.messages.create(
             model=model,
-            max_tokens=180,
+            max_tokens=150,
             temperature=0.7,
             system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
+            messages=[
+                {"role": "user", "content": user_message}
+            ]
         )
-
+        
         return response.content[0].text.strip()
-
+        
     except Exception as e:
-        return f"[AI error: {e}]"
+        st.error(f"🔥 AI service error: {str(e)}")
+        return f"[{character.name} would respond here, but I'm having connection issues. Please try again!]"
 
-
-# --- END PART 4 ---
-
-# --- PART 5: Admin Panel & Database Tools ---
-
-import sqlite3
-
-
-def show_admin_panel(db: "EduChatDatabase", current_user: User):
-    """Database administration panel for monitoring and debugging."""
-
+def show_admin_panel(db: 'EduChatDatabase', current_user: User):
+    """Database administration panel for monitoring and debugging"""
+    
     st.subheader("📊 Database Overview")
-
+    
+    # Quick stats
+    import sqlite3
     conn = sqlite3.connect(db.db_path)
     cursor = conn.cursor()
-
+    
+    # Count records in each table
     tables_info = {}
-    for table in ["users", "conversations", "messages", "character_memory"]:
+    for table in ['users', 'conversations', 'messages', 'character_memory']:
         cursor.execute(f"SELECT COUNT(*) FROM {table}")
-        tables_info[table] = cursor.fetchone()[0]
-
+        count = cursor.fetchone()[0]
+        tables_info[table] = count
+    
+    # Display stats
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Users", tables_info["users"])
-    col2.metric("Conversations", tables_info["conversations"])
-    col3.metric("Messages", tables_info["messages"])
-    col4.metric("Memories", tables_info["character_memory"])
-
+    with col1:
+        st.metric("Users", tables_info['users'])
+    with col2:
+        st.metric("Conversations", tables_info['conversations'])
+    with col3:
+        st.metric("Messages", tables_info['messages'])
+    with col4:
+        st.metric("Memories", tables_info['character_memory'])
+    
+    # Table browser
     st.subheader("🔍 Table Explorer")
-    table_options = [
-        "users",
-        "conversations",
-        "messages",
-        "character_memory",
-        "learning_progress",
-    ]
+    table_options = ['users', 'conversations', 'messages', 'character_memory', 'learning_progress']
     selected_table = st.selectbox("Select table to view:", table_options)
-
+    
     if selected_table:
+        # Show table structure first
         cursor.execute(f"PRAGMA table_info({selected_table})")
         schema = cursor.fetchall()
+        
         with st.expander(f"📋 {selected_table} Schema"):
-            df_schema = pd.DataFrame(
-                schema,
-                columns=["ID", "Name", "Type", "NotNull", "Default", "PK"],
-            )
-            st.dataframe(df_schema, use_container_width=True)
-
-        limit = st.slider("Show last N records:", 1, 50, 10)
-
+            schema_df = pd.DataFrame(schema, columns=['ID', 'Name', 'Type', 'NotNull', 'Default', 'PK'])
+            st.dataframe(schema_df, use_container_width=True)
+        
+        # Show recent data
+        limit = st.slider(f"Show last N records from {selected_table}:", 1, 50, 10)
+        
         try:
-            if selected_table == "messages":
+            if selected_table == 'messages':
+                # Special handling for messages - join with conversation info
                 query = """
-                SELECT m.id, m.sender, m.content, m.timestamp,
-                       c.title AS conversation_title,
-                       u.name AS user_name
+                SELECT m.id, m.sender, m.content, m.timestamp, c.title as conversation_title, u.name as user_name
                 FROM messages m
                 LEFT JOIN conversations c ON m.conversation_id = c.id
                 LEFT JOIN users u ON c.user_id = u.id
@@ -331,68 +362,77 @@ def show_admin_panel(db: "EduChatDatabase", current_user: User):
                 LIMIT ?
                 """
                 df = pd.read_sql(query, conn, params=(limit,))
-                df["content"] = df["content"].apply(lambda x: x[:120] + "…")
-
-            elif selected_table == "character_memory":
+                
+                # Truncate long messages for display
+                if 'content' in df.columns:
+                    df['content'] = df['content'].str[:100] + '...'
+                    
+            elif selected_table == 'character_memory':
+                # Enhanced character memory view
                 query = """
-                SELECT cm.character_name, cm.memory_type, cm.content,
-                       cm.importance_score, cm.created_at,
-                       u.name AS user_name
+                SELECT cm.character_name, cm.memory_type, cm.content, cm.importance_score, 
+                       cm.created_at, u.name as user_name
                 FROM character_memory cm
                 LEFT JOIN users u ON cm.user_id = u.id
                 ORDER BY cm.created_at DESC
                 LIMIT ?
                 """
                 df = pd.read_sql(query, conn, params=(limit,))
-
+                
             else:
-                df = pd.read_sql(
-                    f"SELECT * FROM {selected_table} ORDER BY rowid DESC LIMIT ?",
-                    conn,
-                    params=(limit,),
-                )
-
+                # Standard table query
+                df = pd.read_sql(f"SELECT * FROM {selected_table} ORDER BY rowid DESC LIMIT ?", conn, params=(limit,))
+            
             st.dataframe(df, use_container_width=True)
-
+            
         except Exception as e:
-            st.error(f"Query error: {e}")
-
+            st.error(f"Error querying {selected_table}: {str(e)}")
+    
+    # Character Memory Analysis
     st.subheader("🧠 Character Memory Analysis")
-
+    
+    # Memory by character
     memory_query = """
-    SELECT character_name, COUNT(*) AS memory_count,
-           AVG(importance_score) AS avg_importance
-    FROM character_memory
+    SELECT character_name, COUNT(*) as memory_count, AVG(importance_score) as avg_importance
+    FROM character_memory 
     GROUP BY character_name
     ORDER BY memory_count DESC
     """
     memory_stats = pd.read_sql(memory_query, conn)
+    
     if not memory_stats.empty:
         col1, col2 = st.columns(2)
-        col1.write("**Memories by Character:**")
-        col1.dataframe(memory_stats, use_container_width=True)
-        col2.write("**Memory Distribution:**")
-        col2.bar_chart(memory_stats.set_index("character_name")["memory_count"])
-
+        
+        with col1:
+            st.write("**Memories by Character:**")
+            st.dataframe(memory_stats, use_container_width=True)
+        
+        with col2:
+            st.write("**Memory Distribution:**")
+            st.bar_chart(memory_stats.set_index('character_name')['memory_count'])
+    
+    # Recent Activity Analysis
     st.subheader("📈 Activity Analysis")
-
+    
+    # Messages per day
     activity_query = """
-    SELECT DATE(timestamp) AS date, COUNT(*) AS message_count
-    FROM messages
+    SELECT DATE(timestamp) as date, COUNT(*) as message_count
+    FROM messages 
     WHERE timestamp >= date('now', '-7 days')
     GROUP BY DATE(timestamp)
     ORDER BY date DESC
     """
     activity_df = pd.read_sql(activity_query, conn)
+    
     if not activity_df.empty:
         st.write("**Messages per Day (Last 7 Days):**")
-        st.bar_chart(activity_df.set_index("date")["message_count"])
-
+        st.bar_chart(activity_df.set_index('date')['message_count'])
+    
+    # User engagement
     engagement_query = """
-    SELECT u.name,
-           COUNT(DISTINCT c.id) AS conversation_count,
-           COUNT(m.id) AS total_messages,
-           MAX(u.last_active) AS last_active
+    SELECT u.name, COUNT(DISTINCT c.id) as conversation_count, 
+           COUNT(m.id) as total_messages, 
+           MAX(u.last_active) as last_active
     FROM users u
     LEFT JOIN conversations c ON u.id = c.user_id
     LEFT JOIN messages m ON c.id = m.conversation_id
@@ -400,260 +440,393 @@ def show_admin_panel(db: "EduChatDatabase", current_user: User):
     ORDER BY total_messages DESC
     """
     engagement_df = pd.read_sql(engagement_query, conn)
+    
     if not engagement_df.empty:
         st.write("**User Engagement:**")
         st.dataframe(engagement_df, use_container_width=True)
-
-    st.subheader("🛠️ Database Maintenance")
-
+    
+    # Database maintenance
+    st.subheader(""🛠️ Database Maintenance"")
+    
     col1, col2, col3 = st.columns(3)
-    if col1.button("🧹 Clean Old Sessions"):
-        st.success("Cleanup complete!")
-
-    if col2.button("📊 Export Data"):
-        st.success("Exporting will be implemented here.")
-
-    if col3.button("💾 DB Size"):
-        size_mb = os.path.getsize(db.db_path) / (1024 * 1024)
-        st.metric("DB Size", f"{size_mb:.2f} MB")
-
+    
+    with col1:
+        if st.button("🧹 Clean Old Sessions"):
+            # Clean up old temporary data if needed
+            st.success("Cleanup completed!")
+    
+    with col2:
+        if st.button("📊 Export Data"):
+            # Export data to CSV
+            export_data = {
+                'users': pd.read_sql("SELECT * FROM users", conn),
+                'conversations': pd.read_sql("SELECT * FROM conversations", conn),
+                'character_memory': pd.read_sql("SELECT * FROM character_memory", conn)
+            }
+            st.success("Data exported! (Download functionality would be added here)")
+    
+    with col3:
+        # Database file size
+        import os
+        if os.path.exists(db.db_path):
+            size_mb = os.path.getsize(db.db_path) / (1024 * 1024)
+            st.metric("DB Size", f"{size_mb:.2f} MB")
+    
+    # Raw SQL Query Interface
     st.subheader("💻 SQL Query Interface")
-    with st.expander("Run SQL Query"):
-        custom_query = st.text_area("Enter SELECT or PRAGMA query:")
+    with st.expander("Execute Custom SQL Query"):
+        custom_query = st.text_area(
+            "Enter SQL query:", 
+            placeholder="SELECT * FROM users LIMIT 5;",
+            help="Be careful with UPDATE/DELETE queries!"
+        )
+        
         if st.button("Execute Query") and custom_query:
             try:
-                if custom_query.strip().upper().startswith(("SELECT", "PRAGMA")):
-                    df = pd.read_sql(custom_query, conn)
-                    st.dataframe(df, use_container_width=True)
+                if custom_query.strip().upper().startswith(('SELECT', 'PRAGMA')):
+                    result_df = pd.read_sql(custom_query, conn)
+                    st.dataframe(result_df, use_container_width=True)
                 else:
-                    st.warning("Only SELECT and PRAGMA queries allowed.")
+                    st.warning("Only SELECT and PRAGMA queries allowed for safety!")
             except Exception as e:
-                st.error(f"Query error: {e}")
-
+                st.error(f"Query error: {str(e)}")
+    
     conn.close()
 
-# --- END PART 5 ---
-
-# --- PART 6: Messaging + Main Application ---
-
-# Display a single chat message
+def show_enhanced_admin_section(db, memory_engine, current_user):
+    """Add enhanced admin features"""
+    
+    st.markdown("---")
+    st.subheader("🚀 Enhanced Features")
+    
+    # Performance metrics from optimized database
+    perf_stats = db.get_admin_stats_optimized()
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Users", perf_stats['users'])
+    with col2:
+        st.metric("Conversations", perf_stats['conversations'])
+    with col3:
+        st.metric("Messages", perf_stats['messages'])
+    with col4:
+        st.metric("Enhanced Memories", perf_stats['memories'])
+    
+    # Memory system insights
+    if current_user:
+        st.subheader("🧠 Memory System Analysis")
+        
+        memory_summary = memory_engine.generate_memory_summary("Aino", current_user.id)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Total Memories", memory_summary['total_memories'])
+        with col2:
+            if 'relationship_strength' in memory_summary:
+                st.metric("Relationship Strength", f"{memory_summary['relationship_strength']}/10")
+        
+        # Memory type breakdown
+        if 'memory_types' in memory_summary and memory_summary['memory_types']:
+            st.write("**Memory Types:**")
+            memory_df = pd.DataFrame(list(memory_summary['memory_types'].items()), 
+                                   columns=['Type', 'Count'])
+            st.bar_chart(memory_df.set_index('Type')['Count'])
 
 def display_message(message: Message):
+    """Display a chat message with proper styling"""
     if message.sender == "You":
+        # User message - right aligned, blue
         st.chat_message("user").write(message.content)
     else:
+        # Character message - left aligned, with character styling  
         with st.chat_message("assistant"):
+            # Character name as bold header
             st.markdown(f"**{message.sender}**")
             st.write(message.content)
 
-
-# --- MAIN APPLICATION ---
-
 def main():
+    """Main Streamlit application with persistent user profiles"""
+    
+    # Initialize enhanced database and memory system
     db = init_database()
-    memory_engine = init_memory_engine()
+    memory_engine = init_memory_engine() 
     user_manager = UserManager(db)
-
+    
+    # User selection/creation interface
     current_user = user_manager.show_user_selection()
+    
+    # If no user is selected, show welcome message and stop
     if not current_user:
         st.title("🎓 Welcome to EduChat!")
-        st.markdown(
-            """
-            ### Learn by chatting with AI characters:
-
-            - **Aino** 🇫🇮 — Finnish tutor and cultural guide
-            - **Mase** 🧠 — Witty knowledge‑dropper
-            - **Anna** 💡 — Practical life and finance wisdom
-            - **Bee** 📊 — Data scientist & endurance athlete
+        st.markdown("""
+        ### Your AI Learning Companions
+        
+        EduChat helps you learn through conversations with AI characters who have distinct personalities:
+        - **Aino** 🇫🇮 — Finnish tutor and cultural guide
+        - **Mase** 🧠 — Witty knowledge‑dropper
+        - **Anna** 💡 — Practical life and finance wisdom
+        - **Bee** 📊 — Data scientist & endurance athlete
 
             👉 Create your profile in the sidebar to begin.
-            """
-        )
+        """)
         return
-
-    if "conversation_state" not in st.session_state:
+    
+    # Initialize session state for this user
+    if 'conversation_state' not in st.session_state:
         st.session_state.conversation_state = ConversationState()
-
-    if (
-        "messages" not in st.session_state
-        or st.session_state.get("current_user_id") != current_user.id
-    ):
+    
+    if 'messages' not in st.session_state or st.session_state.get('current_user_id') != current_user.id:
+        # New user or user switched - load their conversation history
         st.session_state.current_user_id = current_user.id
         st.session_state.messages = []
-
-        welcome = Message(
+        
+        # Load most recent conversation or start fresh
+        recent_conversations = db.get_user_conversations(current_user.id, 1)
+        if recent_conversations:
+            st.sidebar.info(f"📚 Found {len(db.get_user_conversations(current_user.id))} previous conversations")
+        
+        # Add personalized welcome message
+        welcome_msg = Message(
             sender="System",
-            content=f"Welcome back, {current_user.name}! 🎓 What would you like to explore today?",
+            content=f"Welcome back, {current_user.name}! 🎓 Your AI learning companions remember you. What would you like to explore today?",
+            character_color="#F5F5F5"
         )
-        st.session_state.messages.append(welcome)
-
-    if "generating" not in st.session_state:
+        st.session_state.messages.append(welcome_msg)
+    
+    if 'generating' not in st.session_state:
         st.session_state.generating = False
-
-    # --- SIDEBAR ---
+    
+    # Sidebar for controls and analytics  
     with st.sidebar:
         st.title("🎓 EduChat Controls")
+        
+        # User info and analytics
         user_manager.show_user_analytics(current_user)
-
+        
+        # Admin panel for database exploration (Pete only)
         if current_user.name.lower() == "pete":
-            with st.expander("🔧 Admin Panel"):
+            st.markdown("---")
+            with st.expander("🔧 Enhanced Database Admin Panel"):
                 show_admin_panel(db, current_user)
-
+                show_enhanced_admin_section(db, memory_engine, current_user)
+        
+        st.markdown("---")
+        
+        # Conversation settings
         st.subheader("Settings")
-        mode = st.selectbox(
+        conversation_mode = st.selectbox(
             "Conversation Mode",
             ["balanced", "focused", "casual"],
+            index=0,
+            help="How the characters should approach the conversation"
         )
-        st.session_state.conversation_state.conversation_mode = mode
-
-        rounds = st.slider("Rounds per topic", 1, 5, 3)
-        st.session_state.conversation_state.max_rounds = rounds
-
-        st.subheader("Characters")
-        for name, char in st.session_state.conversation_state.characters.items():
-            with st.expander(name):
+        st.session_state.conversation_state.conversation_mode = conversation_mode
+        
+        max_rounds = st.slider("Rounds per topic", 1, 5, 3)
+        st.session_state.conversation_state.max_rounds = max_rounds
+        
+        # Character info with personalization hints
+        st.subheader("Your Learning Companions")
+        for char_name, char in st.session_state.conversation_state.characters.items():
+            with st.expander(f"{char_name}"):
                 st.write(f"**Role:** {char.description}")
-                memories = db.get_character_memories(name, current_user.id, 2)
+                
+                # Show character memories if available
+                memories = db.get_character_memories(char_name, current_user.id, 2)
                 if memories:
-                    st.write("**Remembers:**")
-                    for m in memories:
-                        st.write(f"• {m['content']}")
-
+                    st.write("**Remembers about you:**")
+                    for memory in memories:
+                        st.write(f"• {memory['content']}")
+                
+                st.write(f"**Style:** {char.speaking_style[:100]}...")
+        
+        # Quick topic buttons
         st.subheader("Quick Topics")
         col1, col2 = st.columns(2)
-        if col1.button("🇫🇮 Finnish Lesson"):
-            st.session_state.pending_topic = (
-                "Hi Aino! I'd like to practice Finnish today. What should we learn?"
-            )
-
-        if col2.button("📚 Study Help"):
-            st.session_state.pending_topic = (
-                "I need help organizing my study schedule. Any tips?"
-            )
-
-    # --- MAIN CHAT DISPLAY ---
+        
+        with col1:🇫🇮
+            if st.button("🇫🇮 Finnish Lesson", use_container_width=True):
+                st.session_state.pending_topic = f"Hi Aino! I'd like to practice Finnish today. What should we learn?"
+        
+        with col2:
+            if st.button("📚 Study Help", use_container_width=True):
+                st.session_state.pending_topic = "I need help organizing my study schedule. Any tips?"
+        
+        # Analytics section
+        if len(st.session_state.messages) > 1:
+            st.subheader("📊 Session Analytics")
+        
+            # Create simple analytics dataframe
+            messages_df = pd.DataFrame([
+                {
+                    'sender': msg.sender,
+                    'length': len(msg.content),
+                    'timestamp': msg.timestamp
+                } 
+                for msg in st.session_state.messages
+            ])
+            
+            st.metric("Messages This Session", len(messages_df))
+            
+            # Character participation
+            char_counts = messages_df[messages_df['sender'] != 'You']['sender'].value_counts()
+            if not char_counts.empty:
+                st.write("**Character Participation:**")
+                st.bar_chart(char_counts)
+    
+    # Main chat interface
     st.title("💬 Learning Conversation")
-
-    for msg in st.session_state.messages:
-        display_message(msg)
-
-    if "pending_topic" in st.session_state:
+    
+    # Display conversation history
+    for message in st.session_state.messages:
+        display_message(message)
+    
+    # Handle pending topic from quick buttons
+    if 'pending_topic' in st.session_state:
         user_input = st.session_state.pending_topic
         del st.session_state.pending_topic
     else:
-        user_input = st.chat_input("Ask a question or start a topic…", disabled=st.session_state.generating)
-
+        # Chat input
+        user_input = st.chat_input(
+            "Ask a question or start a new topic...",
+            disabled=st.session_state.generating
+        )
+    
+    # Process user input
     if user_input and not st.session_state.generating:
+        # Add user message
         user_msg = Message(sender="You", content=user_input)
         st.session_state.messages.append(user_msg)
         display_message(user_msg)
-
-        conv = st.session_state.conversation_state
-        conv.initialize_round(user_input)
-
+        
+        # Initialize conversation round
+        conv_state = st.session_state.conversation_state
+        conv_state.initialize_round(user_input)
+        
+        # Generate AI responses with character memory
         st.session_state.generating = True
-        progress = st.progress(0)
-        status = st.empty()
-
+        
+        # Progress indicator
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
         try:
-            total = len(conv.speaker_queue)
-
-            for i in range(total):
-                character = conv.get_next_speaker()
+            total_characters = len(conv_state.speaker_queue)
+            
+            for i in range(total_characters):
+                character = conv_state.get_next_speaker()
                 if not character:
                     break
-
-                progress.progress((i + 1) / total)
-                status.text(f"{character.name} is thinking…")
-                time.sleep(1.0)
-
-                context = "
-".join(
-                    f"{m.sender}: {m.content}" for m in st.session_state.messages[-5:]
-                )
-
+                
+                # Update progress
+                progress = (i + 1) / total_characters
+                progress_bar.progress(progress)
+                status_text.text(f"{character.name} is thinking...")
+                
+                # Add typing delay for realism
+                time.sleep(1.5)
+                
+                # Build conversation context with character memory
+                conversation_context = "\n".join([
+                    f"{msg.sender}: {msg.content}" 
+                    for msg in st.session_state.messages[-5:]  # Last 5 messages
+                ])
+                
+                # Get enhanced character memories with personalized context
+                memories = db.get_character_memories_optimized(character.name, current_user.id, 5)
+                
+                # Build sophisticated memory context using the memory engine
                 personalized_context = memory_engine.build_character_context(
                     character.name, current_user.id, user_input
                 )
-
+                
+                memory_context = personalized_context
+                
                 response = generate_ai_response_enhanced(
-                    character,
-                    context + "
-" + personalized_context,
+                    character, 
+                    conversation_context + "\n" + memory_context, 
                     user_input,
                     memory_engine,
-                    current_user,
+                    current_user
                 )
-
-                char_msg = Message(sender=character.name, content=response)
+                
+                # Add character message
+                char_msg = Message(
+                    sender=character.name,
+                    content=response,
+                    character_color=character.color
+                )
                 st.session_state.messages.append(char_msg)
                 display_message(char_msg)
-
-                if not response.startswith("["):
-                    memories = memory_engine.extract_memories_from_conversation(
-                        user_input,
-                        response,
-                        character.name,
-                        current_user.id,
+                
+                # Extract and store enhanced memories from this interaction
+                if not response.startswith('[Error') and not response.startswith('['):
+                    # Use advanced memory extraction
+                    extracted_memories = memory_engine.extract_memories_from_conversation(
+                        user_input, response, character.name, current_user.id
                     )
-                    for mem in memories:
+                    
+                    # Store all extracted memories
+                    for memory in extracted_memories:
+                        # Convert to database format and store
                         db.store_character_memory(
-                            mem.character_name,
-                            mem.user_id,
-                            mem.memory_type,
-                            mem.content,
-                            mem.importance_score,
+                            memory.character_name,
+                            memory.user_id, 
+                            memory.memory_type,
+                            memory.content,
+                            memory.importance_score
                         )
-
+                    
+                    # Show memory extraction in debug mode (optional)
+                    if len(extracted_memories) > 0:
+                        with st.expander(f"🧠 {character.name} learned {len(extracted_memories)} new things"):
+                            for memory in extracted_memories:
+                                st.write(f"• **{memory.memory_type.title()}**: {memory.content}")
+        
         finally:
-            progress.empty()
-            status.empty()
+            # Cleanup
+            progress_bar.empty()
+            status_text.empty()
             st.session_state.generating = False
-
+            
+            # Save conversation to database
             if current_user:
-                record = ConversationRecord(
+                conversation_record = ConversationRecord(
                     user_id=current_user.id,
-                    title=f"Chat about: {user_input[:30]}…",
+                    title=f"Chat about: {user_input[:30]}...",
                     topic=user_input[:50],
-                    character_set=[c for c in conv.characters.keys()],
-                    conversation_mode=mode,
-                    total_rounds=conv.current_round,
+                    character_set=[char.name for char in st.session_state.conversation_state.characters.values()],
+                    conversation_mode=conversation_mode,
+                    total_rounds=conv_state.current_round,
                     total_messages=len(st.session_state.messages),
-                    messages=[
-                        {
-                            "sender": m.sender,
-                            "content": m.content,
-                            "timestamp": m.timestamp,
-                        }
-                        for m in st.session_state.messages
-                    ],
+                    messages=[{
+                        'sender': msg.sender,
+                        'content': msg.content,
+                        'timestamp': msg.timestamp
+                    } for msg in st.session_state.messages]
                 )
-                db.save_conversation(record)
-
-            if conv.is_round_complete():
-                if conv.should_end_conversation():
-                    st.session_state.messages.append(
-                        Message(
-                            sender="System",
-                            content=f"Great conversation, {current_user.name}! 🎉 Ready for a new topic?",
-                        )
+                db.save_conversation(conversation_record)
+            
+            # Check if round/conversation is complete
+            if conv_state.is_round_complete():
+                if conv_state.should_end_conversation():
+                    completion_msg = Message(
+                        sender="System",
+                        content=f"Great conversation, {current_user.name}! ðŸŽ‰ Ready for a new topic?",
+                        character_color="#E8F5E8"
                     )
-                    conv.reset_for_new_topic()
+                    st.session_state.messages.append(completion_msg)
+                    conv_state.reset_for_new_topic()
                 else:
-                    st.session_state.messages.append(
-                        Message(
-                            sender="System",
-                            content=f"Round {conv.current_round} complete! Continue or start a new topic.",
-                        )
+                    round_msg = Message(
+                        sender="System", 
+                        content=f"Round {conv_state.current_round} complete! Continue the conversation or start a new topic.",
+                        character_color="#E8F5E8"
                     )
-
+                    st.session_state.messages.append(round_msg)
+            
+            # Trigger rerun to show new messages
             st.rerun()
 
-
-# Run the application
 if __name__ == "__main__":
     main()
-
-# --- END OF CLEANED FILE ---
-
-# Say "continue" for Part 4 (Admin panel).
