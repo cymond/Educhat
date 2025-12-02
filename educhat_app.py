@@ -17,7 +17,11 @@ import pandas as pd
 from dotenv import load_dotenv
 
 # Import our new database models
-from database_models import EduChatDatabase, UserManager, User, ConversationRecord
+from database_models import UserManager, User, ConversationRecord
+
+# Import the new optimization modules
+from optimized_database import OptimizedEduChatDatabase
+from memory_system import AdvancedMemoryEngine, MemoryItem
 
 # Load environment variables from .env file
 load_dotenv()
@@ -25,13 +29,19 @@ load_dotenv()
 # Initialize database
 @st.cache_resource
 def init_database():
-    """Initialize database connection (cached for performance)"""
-    return EduChatDatabase()
+    """Initialize optimized database connection (cached for performance)"""
+    return OptimizedEduChatDatabase()
+
+@st.cache_resource  
+def init_memory_engine():
+    """Initialize enhanced memory engine"""
+    db = init_database()
+    return AdvancedMemoryEngine(db)
 
 # Configure Streamlit
 st.set_page_config(
     page_title="EduChat - AI Learning Companions", 
-    page_icon="🎓",
+    page_icon="ðŸŽ“",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -157,20 +167,20 @@ def generate_ai_response(character: Character, conversation_context: str, user_m
     try:
         api_key = st.secrets["ANTHROPIC_API_KEY"]
         model = st.secrets.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
-        st.info("🔑 Using Streamlit secrets for API key")
+        st.info("ðŸ”‘ Using Streamlit secrets for API key")
     except:
         api_key = os.getenv('ANTHROPIC_API_KEY')
         model = os.getenv('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
-        st.info("🔑 Using environment variables for API key")
+        st.info("ðŸ”‘ Using environment variables for API key")
     
     # Debug info for Streamlit Cloud (remove this after testing)
     if api_key:
-        st.info(f"🔑 API Key found: {api_key[:10]}... (length: {len(api_key)})")
-        st.info(f"🤖 Using model: {model}")
+        st.info(f"ðŸ”‘ API Key found: {api_key[:10]}... (length: {len(api_key)})")
+        st.info(f"ðŸ¤– Using model: {model}")
     
     if not api_key or api_key == 'your_anthropic_api_key_here':
         # Fallback to placeholder responses if no API key
-        st.warning("⚠️ Add ANTHROPIC_API_KEY to .env file for real AI responses")
+        st.warning("âš ï¸ Add ANTHROPIC_API_KEY to .env file for real AI responses")
         fallback_responses = {
             "Aino": f"Hei! About '{user_message}' - in Finnish we say 'Tervetuloa oppimaan!' (Welcome to learning!)",
             "Mase": f"*drops knowledge* Yeah, {user_message.lower()} is actually pretty interesting...",
@@ -219,8 +229,308 @@ Respond naturally as {character.name} would."""
         
     except Exception as e:
         # Graceful fallback if API call fails
-        st.error(f"🔄 AI service error: {str(e)}")
+        st.error(f"ðŸ”„ AI service error: {str(e)}")
         return f"[{character.name} would respond here, but I'm having connection issues. Please try again!]"
+
+def generate_ai_response_enhanced(character, conversation_context, user_message, memory_engine, current_user):
+    """Enhanced AI response generation with personalized memory context"""
+    
+    # Get API credentials (same as before)
+    try:
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+        model = st.secrets.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+    except:
+        api_key = os.getenv('ANTHROPIC_API_KEY')
+        model = os.getenv('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
+    
+    if not api_key or api_key == 'your_anthropic_api_key_here':
+        # Same fallback as before
+        fallback_responses = {
+            "Aino": f"Hei! About '{user_message}' - in Finnish we say 'Tervetuloa oppimaan!' (Welcome to learning!)",
+            "Mase": f"*drops knowledge* Yeah, {user_message.lower()} is actually pretty interesting...",
+            "Anna": f"Here's practical wisdom about {user_message.lower()}: focus on the fundamentals first.",
+            "Bee": f"If I analyze {user_message.lower()} like data... there are patterns here worth exploring."
+        }
+        return fallback_responses.get(character.name, "I'd love to help with that!")
+    
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+        
+        # Get personalized context from memory engine
+        personalized_context = memory_engine.build_character_context(
+            character.name, current_user.id, user_message
+        )
+        
+        # Build enhanced system prompt with memory context
+        system_prompt = f"""You are participating in an educational group chat as the character {character.name}.
+
+{character.get_style_prompt()}
+
+PERSONALIZED CONTEXT (what you remember about this user):
+{personalized_context}
+
+CRITICAL INSTRUCTIONS:
+- Stay completely in character as {character.name}
+- Use your memories about this user to personalize your response
+- Keep responses conversational and brief (1-3 sentences)
+- Be helpful and educational
+- Reference previous conversations or user preferences when relevant
+- If you're Aino, include Finnish language/cultural elements naturally
+- If you're Mase, be witty but informative  
+- If you're Anna, offer practical wisdom
+- If you're Bee, bring analytical/data perspectives
+
+Recent conversation context:
+{conversation_context}
+
+The user just said: "{user_message}"
+
+Respond naturally as {character.name} would, incorporating what you remember about this user."""
+
+        # Call Anthropic API
+        response = client.messages.create(
+            model=model,
+            max_tokens=150,
+            temperature=0.7,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": user_message}
+            ]
+        )
+        
+        return response.content[0].text.strip()
+        
+    except Exception as e:
+        st.error(f"🔥 AI service error: {str(e)}")
+        return f"[{character.name} would respond here, but I'm having connection issues. Please try again!]"
+
+def show_admin_panel(db: 'EduChatDatabase', current_user: User):
+    """Database administration panel for monitoring and debugging"""
+    
+    st.subheader("ðŸ“Š Database Overview")
+    
+    # Quick stats
+    import sqlite3
+    conn = sqlite3.connect(db.db_path)
+    cursor = conn.cursor()
+    
+    # Count records in each table
+    tables_info = {}
+    for table in ['users', 'conversations', 'messages', 'character_memory']:
+        cursor.execute(f"SELECT COUNT(*) FROM {table}")
+        count = cursor.fetchone()[0]
+        tables_info[table] = count
+    
+    # Display stats
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Users", tables_info['users'])
+    with col2:
+        st.metric("Conversations", tables_info['conversations'])
+    with col3:
+        st.metric("Messages", tables_info['messages'])
+    with col4:
+        st.metric("Memories", tables_info['character_memory'])
+    
+    # Table browser
+    st.subheader("ðŸ” Table Explorer")
+    table_options = ['users', 'conversations', 'messages', 'character_memory', 'learning_progress']
+    selected_table = st.selectbox("Select table to view:", table_options)
+    
+    if selected_table:
+        # Show table structure first
+        cursor.execute(f"PRAGMA table_info({selected_table})")
+        schema = cursor.fetchall()
+        
+        with st.expander(f"ðŸ“‹ {selected_table} Schema"):
+            schema_df = pd.DataFrame(schema, columns=['ID', 'Name', 'Type', 'NotNull', 'Default', 'PK'])
+            st.dataframe(schema_df, use_container_width=True)
+        
+        # Show recent data
+        limit = st.slider(f"Show last N records from {selected_table}:", 1, 50, 10)
+        
+        try:
+            if selected_table == 'messages':
+                # Special handling for messages - join with conversation info
+                query = """
+                SELECT m.id, m.sender, m.content, m.timestamp, c.title as conversation_title, u.name as user_name
+                FROM messages m
+                LEFT JOIN conversations c ON m.conversation_id = c.id
+                LEFT JOIN users u ON c.user_id = u.id
+                ORDER BY m.timestamp DESC
+                LIMIT ?
+                """
+                df = pd.read_sql(query, conn, params=(limit,))
+                
+                # Truncate long messages for display
+                if 'content' in df.columns:
+                    df['content'] = df['content'].str[:100] + '...'
+                    
+            elif selected_table == 'character_memory':
+                # Enhanced character memory view
+                query = """
+                SELECT cm.character_name, cm.memory_type, cm.content, cm.importance_score, 
+                       cm.created_at, u.name as user_name
+                FROM character_memory cm
+                LEFT JOIN users u ON cm.user_id = u.id
+                ORDER BY cm.created_at DESC
+                LIMIT ?
+                """
+                df = pd.read_sql(query, conn, params=(limit,))
+                
+            else:
+                # Standard table query
+                df = pd.read_sql(f"SELECT * FROM {selected_table} ORDER BY rowid DESC LIMIT ?", conn, params=(limit,))
+            
+            st.dataframe(df, use_container_width=True)
+            
+        except Exception as e:
+            st.error(f"Error querying {selected_table}: {str(e)}")
+    
+    # Character Memory Analysis
+    st.subheader("ðŸ§  Character Memory Analysis")
+    
+    # Memory by character
+    memory_query = """
+    SELECT character_name, COUNT(*) as memory_count, AVG(importance_score) as avg_importance
+    FROM character_memory 
+    GROUP BY character_name
+    ORDER BY memory_count DESC
+    """
+    memory_stats = pd.read_sql(memory_query, conn)
+    
+    if not memory_stats.empty:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Memories by Character:**")
+            st.dataframe(memory_stats, use_container_width=True)
+        
+        with col2:
+            st.write("**Memory Distribution:**")
+            st.bar_chart(memory_stats.set_index('character_name')['memory_count'])
+    
+    # Recent Activity Analysis
+    st.subheader("ðŸ“ˆ Activity Analysis")
+    
+    # Messages per day
+    activity_query = """
+    SELECT DATE(timestamp) as date, COUNT(*) as message_count
+    FROM messages 
+    WHERE timestamp >= date('now', '-7 days')
+    GROUP BY DATE(timestamp)
+    ORDER BY date DESC
+    """
+    activity_df = pd.read_sql(activity_query, conn)
+    
+    if not activity_df.empty:
+        st.write("**Messages per Day (Last 7 Days):**")
+        st.bar_chart(activity_df.set_index('date')['message_count'])
+    
+    # User engagement
+    engagement_query = """
+    SELECT u.name, COUNT(DISTINCT c.id) as conversation_count, 
+           COUNT(m.id) as total_messages, 
+           MAX(u.last_active) as last_active
+    FROM users u
+    LEFT JOIN conversations c ON u.id = c.user_id
+    LEFT JOIN messages m ON c.id = m.conversation_id
+    GROUP BY u.id, u.name
+    ORDER BY total_messages DESC
+    """
+    engagement_df = pd.read_sql(engagement_query, conn)
+    
+    if not engagement_df.empty:
+        st.write("**User Engagement:**")
+        st.dataframe(engagement_df, use_container_width=True)
+    
+    # Database maintenance
+    st.subheader("ðŸ› ï¸ Database Maintenance")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("ðŸ§¹ Clean Old Sessions"):
+            # Clean up old temporary data if needed
+            st.success("Cleanup completed!")
+    
+    with col2:
+        if st.button("ðŸ“Š Export Data"):
+            # Export data to CSV
+            export_data = {
+                'users': pd.read_sql("SELECT * FROM users", conn),
+                'conversations': pd.read_sql("SELECT * FROM conversations", conn),
+                'character_memory': pd.read_sql("SELECT * FROM character_memory", conn)
+            }
+            st.success("Data exported! (Download functionality would be added here)")
+    
+    with col3:
+        # Database file size
+        import os
+        if os.path.exists(db.db_path):
+            size_mb = os.path.getsize(db.db_path) / (1024 * 1024)
+            st.metric("DB Size", f"{size_mb:.2f} MB")
+    
+    # Raw SQL Query Interface
+    st.subheader("ðŸ’» SQL Query Interface")
+    with st.expander("Execute Custom SQL Query"):
+        custom_query = st.text_area(
+            "Enter SQL query:", 
+            placeholder="SELECT * FROM users LIMIT 5;",
+            help="Be careful with UPDATE/DELETE queries!"
+        )
+        
+        if st.button("Execute Query") and custom_query:
+            try:
+                if custom_query.strip().upper().startswith(('SELECT', 'PRAGMA')):
+                    result_df = pd.read_sql(custom_query, conn)
+                    st.dataframe(result_df, use_container_width=True)
+                else:
+                    st.warning("Only SELECT and PRAGMA queries allowed for safety!")
+            except Exception as e:
+                st.error(f"Query error: {str(e)}")
+    
+    conn.close()
+
+def show_enhanced_admin_section(db, memory_engine, current_user):
+    """Add enhanced admin features"""
+    
+    st.markdown("---")
+    st.subheader("🚀 Enhanced Features")
+    
+    # Performance metrics from optimized database
+    perf_stats = db.get_admin_stats_optimized()
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Users", perf_stats['users'])
+    with col2:
+        st.metric("Conversations", perf_stats['conversations'])
+    with col3:
+        st.metric("Messages", perf_stats['messages'])
+    with col4:
+        st.metric("Enhanced Memories", perf_stats['memories'])
+    
+    # Memory system insights
+    if current_user:
+        st.subheader("🧠 Memory System Analysis")
+        
+        memory_summary = memory_engine.generate_memory_summary("Aino", current_user.id)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Total Memories", memory_summary['total_memories'])
+        with col2:
+            if 'relationship_strength' in memory_summary:
+                st.metric("Relationship Strength", f"{memory_summary['relationship_strength']}/10")
+        
+        # Memory type breakdown
+        if 'memory_types' in memory_summary and memory_summary['memory_types']:
+            st.write("**Memory Types:**")
+            memory_df = pd.DataFrame(list(memory_summary['memory_types'].items()), 
+                                   columns=['Type', 'Count'])
+            st.bar_chart(memory_df.set_index('Type')['Count'])
 
 def display_message(message: Message):
     """Display a chat message with proper styling"""
@@ -237,8 +547,9 @@ def display_message(message: Message):
 def main():
     """Main Streamlit application with persistent user profiles"""
     
-    # Initialize database and user manager
+    # Initialize enhanced database and memory system
     db = init_database()
+    memory_engine = init_memory_engine() 
     user_manager = UserManager(db)
     
     # User selection/creation interface
@@ -246,17 +557,17 @@ def main():
     
     # If no user is selected, show welcome message and stop
     if not current_user:
-        st.title("🎓 Welcome to EduChat!")
+        st.title("ðŸŽ“ Welcome to EduChat!")
         st.markdown("""
         ### Your AI Learning Companions
         
         EduChat helps you learn through conversations with AI characters who have distinct personalities:
-        - **Aino** 🇫🇮 - Your Finnish language tutor and cultural guide
-        - **Mase** 🧠 - Witty knowledge-dropper who makes learning fun  
-        - **Anna** 💡 - Wise advisor with practical life lessons
-        - **Bee** 📊 - Data scientist who explains concepts analytically
+        - **Aino** ðŸ‡«ðŸ‡® - Your Finnish language tutor and cultural guide
+        - **Mase** ðŸ§  - Witty knowledge-dropper who makes learning fun  
+        - **Anna** ðŸ’¡ - Wise advisor with practical life lessons
+        - **Bee** ðŸ“Š - Data scientist who explains concepts analytically
         
-        **👈 Create your profile in the sidebar to get started!**
+        **ðŸ‘ˆ Create your profile in the sidebar to get started!**
         """)
         return
     
@@ -272,12 +583,12 @@ def main():
         # Load most recent conversation or start fresh
         recent_conversations = db.get_user_conversations(current_user.id, 1)
         if recent_conversations:
-            st.sidebar.info(f"📚 Found {len(db.get_user_conversations(current_user.id))} previous conversations")
+            st.sidebar.info(f"ðŸ“š Found {len(db.get_user_conversations(current_user.id))} previous conversations")
         
         # Add personalized welcome message
         welcome_msg = Message(
             sender="System",
-            content=f"Welcome back, {current_user.name}! 🎓 Your AI learning companions remember you. What would you like to explore today?",
+            content=f"Welcome back, {current_user.name}! ðŸŽ“ Your AI learning companions remember you. What would you like to explore today?",
             character_color="#F5F5F5"
         )
         st.session_state.messages.append(welcome_msg)
@@ -287,10 +598,18 @@ def main():
     
     # Sidebar for controls and analytics  
     with st.sidebar:
-        st.title("🎓 EduChat Controls")
+        st.title("ðŸŽ“ EduChat Controls")
         
         # User info and analytics
         user_manager.show_user_analytics(current_user)
+        
+        # Admin panel for database exploration (Pete only)
+        if current_user.name.lower() == "pete":
+            st.markdown("---")
+            with st.expander("🔧 Enhanced Database Admin Panel"):
+                show_admin_panel(db, current_user)
+                show_enhanced_admin_section(db, memory_engine, current_user)
+        
         st.markdown("---")
         
         # Conversation settings
@@ -317,7 +636,7 @@ def main():
                 if memories:
                     st.write("**Remembers about you:**")
                     for memory in memories:
-                        st.write(f"• {memory['content']}")
+                        st.write(f"â€¢ {memory['content']}")
                 
                 st.write(f"**Style:** {char.speaking_style[:100]}...")
         
@@ -326,16 +645,16 @@ def main():
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("🇫🇮 Finnish Lesson", use_container_width=True):
+            if st.button("ðŸ‡«ðŸ‡® Finnish Lesson", use_container_width=True):
                 st.session_state.pending_topic = f"Hi Aino! I'd like to practice Finnish today. What should we learn?"
         
         with col2:
-            if st.button("📚 Study Help", use_container_width=True):
+            if st.button("ðŸ“š Study Help", use_container_width=True):
                 st.session_state.pending_topic = "I need help organizing my study schedule. Any tips?"
         
         # Analytics section
         if len(st.session_state.messages) > 1:
-            st.subheader("📊 Session Analytics")
+            st.subheader("ðŸ“Š Session Analytics")
             
             # Create simple analytics dataframe
             messages_df = pd.DataFrame([
@@ -356,7 +675,7 @@ def main():
                 st.bar_chart(char_counts)
     
     # Main chat interface
-    st.title("💬 Learning Conversation")
+    st.title("ðŸ’¬ Learning Conversation")
     
     # Display conversation history
     for message in st.session_state.messages:
@@ -413,16 +732,22 @@ def main():
                     for msg in st.session_state.messages[-5:]  # Last 5 messages
                 ])
                 
-                # Get character memories to personalize response
-                memories = db.get_character_memories(character.name, current_user.id, 3)
-                memory_context = ""
-                if memories:
-                    memory_context = "You remember: " + "; ".join([m['content'] for m in memories])
+                # Get enhanced character memories with personalized context
+                memories = db.get_character_memories_optimized(character.name, current_user.id, 5)
                 
-                response = generate_ai_response(
+                # Build sophisticated memory context using the memory engine
+                personalized_context = memory_engine.build_character_context(
+                    character.name, current_user.id, user_input
+                )
+                
+                memory_context = personalized_context
+                
+                response = generate_ai_response_enhanced(
                     character, 
                     conversation_context + "\n" + memory_context, 
-                    user_input
+                    user_input,
+                    memory_engine,
+                    current_user
                 )
                 
                 # Add character message
@@ -434,19 +759,29 @@ def main():
                 st.session_state.messages.append(char_msg)
                 display_message(char_msg)
                 
-                # Store character memory about this interaction
-                if not response.startswith('[Error'):
-                    # Simple memory extraction - in production we'd use more sophisticated analysis
-                    if any(word in user_input.lower() for word in ['like', 'enjoy', 'love']):
+                # Extract and store enhanced memories from this interaction
+                if not response.startswith('[Error') and not response.startswith('['):
+                    # Use advanced memory extraction
+                    extracted_memories = memory_engine.extract_memories_from_conversation(
+                        user_input, response, character.name, current_user.id
+                    )
+                    
+                    # Store all extracted memories
+                    for memory in extracted_memories:
+                        # Convert to database format and store
                         db.store_character_memory(
-                            character.name, current_user.id, 'preference',
-                            f"User enjoys discussing {user_input.lower()}", 6
+                            memory.character_name,
+                            memory.user_id, 
+                            memory.memory_type,
+                            memory.content,
+                            memory.importance_score
                         )
-                    elif any(word in user_input.lower() for word in ['finnish', 'suomi']):
-                        db.store_character_memory(
-                            character.name, current_user.id, 'learning',
-                            f"User practiced Finnish: {user_input[:50]}", 7
-                        )
+                    
+                    # Show memory extraction in debug mode (optional)
+                    if len(extracted_memories) > 0:
+                        with st.expander(f"🧠 {character.name} learned {len(extracted_memories)} new things"):
+                            for memory in extracted_memories:
+                                st.write(f"• **{memory.memory_type.title()}**: {memory.content}")
         
         finally:
             # Cleanup
@@ -477,7 +812,7 @@ def main():
                 if conv_state.should_end_conversation():
                     completion_msg = Message(
                         sender="System",
-                        content=f"Great conversation, {current_user.name}! 🎉 Ready for a new topic?",
+                        content=f"Great conversation, {current_user.name}! ðŸŽ‰ Ready for a new topic?",
                         character_color="#E8F5E8"
                     )
                     st.session_state.messages.append(completion_msg)
