@@ -446,7 +446,7 @@ def show_admin_panel(db: 'EduChatDatabase', current_user: User):
         st.dataframe(engagement_df, use_container_width=True)
     
     # Database maintenance
-    st.subheader(""🛠️ Database Maintenance"")
+    st.subheader("🛠️ Database Maintenance")
     
     col1, col2, col3 = st.columns(3)
     
@@ -644,7 +644,7 @@ def main():
         st.subheader("Quick Topics")
         col1, col2 = st.columns(2)
         
-        with col1:🇫🇮
+        with col1:
             if st.button("🇫🇮 Finnish Lesson", use_container_width=True):
                 st.session_state.pending_topic = f"Hi Aino! I'd like to practice Finnish today. What should we learn?"
         
