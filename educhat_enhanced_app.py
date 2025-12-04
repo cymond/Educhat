@@ -229,7 +229,7 @@ def show_enhanced_admin_panel(db: EnhancedEduChatDatabase, current_user: User):
     
     conn.close()
 
-def display_enhanced_message(message: Message):
+def display_enhanced_message(message: Message, message_index: int = 0):
     """Display a chat message with enhanced styling and metadata"""
     if message.sender == "You":
         # User message - right aligned, blue
@@ -252,10 +252,12 @@ def display_enhanced_message(message: Message):
             
             st.write(message.content)
             
-            # Show enhanced metadata if available
-            if message.metadata and st.sidebar.checkbox(f"Show {message.sender} Debug", value=False, key=f"msg_debug_{message.sender}_{hash(message.content[:20])}"):
-                with st.expander(f"Debug: {message.sender}"):
-                    st.json(message.metadata)
+            # Show enhanced metadata if available - Use message index for unique, stable keys
+            if message.metadata:
+                unique_key = f"msg_debug_{message.sender}_{message_index}"
+                if st.sidebar.checkbox(f"Show {message.sender} Debug", value=False, key=unique_key):
+                    with st.expander(f"Debug: {message.sender}"):
+                        st.json(message.metadata)
 
 def main():
     """Main enhanced Streamlit application"""
@@ -443,8 +445,8 @@ def main():
     st.title("💬 Enhanced Learning Conversation")
     
     # Display conversation history with enhanced formatting
-    for message in st.session_state.messages:
-        display_enhanced_message(message)
+    for i, message in enumerate(st.session_state.messages):
+        display_enhanced_message(message, message_index=i)
     
     # Handle pending topic from quick buttons
     if 'pending_topic' in st.session_state:
@@ -462,7 +464,7 @@ def main():
         # Add user message
         user_msg = Message(sender="You", content=user_input)
         st.session_state.messages.append(user_msg)
-        display_enhanced_message(user_msg)
+        display_enhanced_message(user_msg, len(st.session_state.messages) - 1)
         
         # Initialize conversation round
         conv_state = st.session_state.conversation_state
@@ -515,7 +517,7 @@ def main():
                     metadata=metadata
                 )
                 st.session_state.messages.append(char_msg)
-                display_enhanced_message(char_msg)
+                display_enhanced_message(char_msg, len(st.session_state.messages) - 1)
         
         finally:
             # Cleanup
