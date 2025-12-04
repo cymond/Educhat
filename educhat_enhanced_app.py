@@ -262,7 +262,7 @@ def main():
     
     # Initialize enhanced database and user manager
     enhanced_db = init_enhanced_database()
-    user_manager = UserManager(enhanced_db)  # Uses duck typing - compatible interface
+    user_manager = UserManager(enhanced_db)  # Now uses EnhancedEduChatDatabase with compatibility methods
     
     # User selection/creation interface
     current_user = user_manager.show_user_selection()

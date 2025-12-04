@@ -563,6 +563,164 @@ class EnhancedEduChatDatabase:
         
         return analytics
 
+    # Backward compatibility methods for UserManager
+    def get_all_users(self) -> List:
+        """Get all users - compatibility method for UserManager"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM users ORDER BY last_active DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        # Import User class without triggering streamlit import
+        import sys
+        import importlib.util
+        
+        # Create User objects manually to avoid streamlit import
+        users = []
+        for row in rows:
+            # Create a simple user object with the needed attributes
+            class SimpleUser:
+                def __init__(self, id, name, age_group, learning_preferences, privacy_settings, created_at, last_active):
+                    self.id = id
+                    self.name = name
+                    self.age_group = age_group
+                    self.learning_preferences = json.loads(learning_preferences) if learning_preferences else {}
+                    self.privacy_settings = json.loads(privacy_settings) if privacy_settings else {}
+                    self.created_at = datetime.fromisoformat(created_at)
+                    self.last_active = datetime.fromisoformat(last_active)
+            
+            user = SimpleUser(row[0], row[1], row[2], row[3], row[4], row[5], row[6])
+            users.append(user)
+        
+        return users
+    
+    def update_user_activity(self, user_id: str):
+        """Update user last activity - compatibility method"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE users SET last_active = ? WHERE id = ?
+        """, (datetime.now().isoformat(), user_id))
+        
+        conn.commit()
+        conn.close()
+    
+    def get_user_conversations(self, user_id: str, limit: int = 10):
+        """Get user conversations - compatibility method"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT * FROM conversations 
+            WHERE user_id = ? 
+            ORDER BY started_at DESC 
+            LIMIT ?
+        """, (user_id, limit))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        conversations = []
+        for row in rows:
+            conversations.append({
+                'id': row[0],
+                'title': row[2],
+                'topic': row[3],
+                'started_at': row[7],
+                'total_messages': row[10] if len(row) > 10 else 0
+            })
+        
+        return conversations
+    
+    def create_user(self, name: str, age_group: str, learning_preferences: dict = None, 
+                   privacy_settings: dict = None):
+        """Create user - compatibility method"""
+        import uuid
+        
+        # Create user object manually
+        class SimpleUser:
+            def __init__(self, name, age_group, learning_preferences=None, privacy_settings=None):
+                self.id = str(uuid.uuid4())
+                self.name = name
+                self.age_group = age_group
+                self.learning_preferences = learning_preferences or {}
+                self.privacy_settings = privacy_settings or {}
+                self.created_at = datetime.now()
+                self.last_active = datetime.now()
+        
+        user = SimpleUser(name, age_group, learning_preferences, privacy_settings)
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO users (id, name, age_group, learning_preferences, 
+                             privacy_settings, created_at, last_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            user.id, user.name, user.age_group,
+            json.dumps(user.learning_preferences),
+            json.dumps(user.privacy_settings),
+            user.created_at.isoformat(),
+            user.last_active.isoformat()
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        return user
+    
+    def save_conversation(self, conversation_record):
+        """Save conversation - compatibility method"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Insert conversation
+        cursor.execute("""
+            INSERT INTO conversations
+            (id, user_id, title, topic, character_set, conversation_mode, 
+             status, started_at, ended_at, total_rounds, total_messages, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            conversation_record.id,
+            conversation_record.user_id,
+            conversation_record.title,
+            conversation_record.topic,
+            json.dumps(conversation_record.character_set),
+            conversation_record.conversation_mode,
+            conversation_record.status,
+            conversation_record.started_at.isoformat(),
+            conversation_record.ended_at.isoformat() if conversation_record.ended_at else None,
+            conversation_record.total_rounds,
+            conversation_record.total_messages,
+            json.dumps(conversation_record.metadata)
+        ))
+        
+        # Insert messages
+        for i, message in enumerate(conversation_record.messages):
+            message_id = str(uuid.uuid4())
+            cursor.execute("""
+                INSERT INTO messages
+                (id, conversation_id, sender, content, timestamp, 
+                 round_number, message_order, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                message_id,
+                conversation_record.id,
+                message['sender'],
+                message['content'],
+                message['timestamp'].isoformat() if hasattr(message['timestamp'], 'isoformat') else message['timestamp'],
+                0,  # Default round number
+                i,  # Message order
+                json.dumps(message.get('metadata', {}))
+            ))
+        
+        conn.commit()
+        conn.close()
+
 if __name__ == "__main__":
     # Test the enhanced database
     db = EnhancedEduChatDatabase("test_enhanced.db")
