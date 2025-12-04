@@ -253,7 +253,7 @@ def display_enhanced_message(message: Message):
             st.write(message.content)
             
             # Show enhanced metadata if available
-            if message.metadata and st.sidebar.checkbox(f"Show {message.sender} Debug", value=False):
+            if message.metadata and st.sidebar.checkbox(f"Show {message.sender} Debug", value=False, key=f"msg_debug_{message.sender}_{hash(message.content[:20])}"):
                 with st.expander(f"Debug: {message.sender}"):
                     st.json(message.metadata)
 
@@ -377,11 +377,14 @@ def main():
         # Enhanced features toggle
         st.write("**Enhanced Features:**")
         enable_emotion_detection = st.checkbox("Emotion Detection", value=True, 
-                                             help="Characters adapt based on your emotional state")
+                                             help="Characters adapt based on your emotional state",
+                                             key="enable_emotion_detection")
         enable_memory_integration = st.checkbox("Memory Integration", value=True,
-                                               help="Characters remember your learning history") 
+                                               help="Characters remember your learning history",
+                                               key="enable_memory_integration") 
         enable_ab_testing = st.checkbox("A/B Testing", value=False,
-                                       help="Participate in character improvement experiments")
+                                       help="Participate in character improvement experiments",
+                                       key="enable_ab_testing")
         
         # Quick enhanced topic buttons
         st.subheader("🚀 Quick Learning Topics")

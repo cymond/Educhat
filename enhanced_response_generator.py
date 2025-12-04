@@ -439,7 +439,7 @@ def generate_enhanced_ai_response(character_name: str, user_id: str, user_messag
     )
     
     # Display debug info in sidebar if enabled
-    if st.sidebar.checkbox("Show Enhanced Character Debug", value=False):
+    if st.sidebar.checkbox("Show Enhanced Character Debug", value=False, key=f"debug_{character_name}_{user_id}"):
         with st.sidebar.expander(f"Debug: {character_name} Response"):
             st.json(metadata)
             
