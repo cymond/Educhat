@@ -1,6 +1,7 @@
 """
 Enhanced AI Response Generation with Character Personality Framework Integration
 Replaces the basic generate_ai_response function with multi-layered context awareness
+NOW WITH DYNAMIC TOKEN CALCULATION - prevents API truncation
 """
 
 import streamlit as st
@@ -23,6 +24,7 @@ class EnhancedResponseGenerator:
         self.db = db
         self.characters = self._initialize_enhanced_characters()
         self.conversation_context_limit = 8  # Number of recent messages to include
+        self._last_db_memories = []  # Store memories for dynamic token calculation
     
     def _initialize_enhanced_characters(self) -> Dict[str, EnhancedCharacter]:
         """Initialize enhanced characters from database or create defaults"""
@@ -101,6 +103,9 @@ class EnhancedResponseGenerator:
         # Step 3: Get database memories for knowledge context
         db_memories = self.db.get_enhanced_memories(character_name, user_id, limit=5)
         
+        # Store memories for dynamic token calculation
+        self._last_db_memories = db_memories
+        
         # Step 4: Build complete multi-layer context
         complete_context = ContextBuilder.build_complete_context(
             character, user_message, conversation_history, db_memories, user_id
@@ -127,10 +132,99 @@ class EnhancedResponseGenerator:
             # Graceful fallback
             error_response = self._generate_fallback_response(character_name, user_message, str(e))
             return error_response, {"error": str(e), "fallback": True}
+
+    def calculate_dynamic_response_tokens(self, character, user_message: str, 
+                                        complete_context: str, db_memories: list) -> int:
+        """
+        Calculate exact tokens needed - prevents API truncation by giving exactly the right space
+        """
+        
+        # Character-specific base needs
+        character_base_needs = {
+            "Aino": 180,   # Finnish explanations with cultural context
+            "Mase": 120,   # Concise but complete knowledge drops
+            "Anna": 160,   # Practical wisdom with examples
+            "Bee": 170     # Technical precision with clarity
+        }
+        
+        base_tokens = character_base_needs.get(character.name, 150)
+        
+        # Analyze message complexity
+        word_count = len(user_message.split())
+        complexity_multiplier = 1.0
+        
+        if word_count > 25:
+            complexity_multiplier = 1.6    # Very complex question
+        elif word_count > 15:
+            complexity_multiplier = 1.3    # Moderately complex
+        elif word_count > 8:
+            complexity_multiplier = 1.1    # Simple question
+        
+        # Detect educational content that needs detailed response
+        educational_indicators = [
+            'explain', 'how', 'why', 'what', 'teach', 'learn', 'show me',
+            'help me understand', 'tell me about', 'describe', 'clarify',
+            'difference between', 'compare', 'example', 'step by step'
+        ]
+        educational_score = sum(1 for phrase in educational_indicators 
+                               if phrase in user_message.lower())
+        educational_multiplier = 1.0 + (educational_score * 0.25)
+        
+        # Integrate with your Character Personality Framework
+        personality_multiplier = 1.0
+        
+        try:
+            # Use patience level from your CPF
+            patience_level = character.core_attributes.patience_level.value
+            patience_adjustments = {
+                1: 0.85,  # Very low patience = more concise
+                2: 0.95,  # Low patience
+                3: 1.0,   # Moderate patience = baseline
+                4: 1.15,  # High patience = more detailed
+                5: 1.3    # Very high patience = comprehensive
+            }
+            patience_multiplier = patience_adjustments.get(patience_level, 1.0)
+            
+            # Use formality and enthusiasm from your CPF
+            formality = getattr(character.core_attributes, 'formality_level', 3)
+            enthusiasm = getattr(character.core_attributes, 'enthusiasm_level', 0.5)
+            
+            formality_multiplier = 1.0 + (formality - 3) * 0.05  # More formal = slightly more detailed
+            enthusiasm_multiplier = 1.0 + enthusiasm * 0.1       # More enthusiastic = slightly longer
+            
+            personality_multiplier = patience_multiplier * formality_multiplier * enthusiasm_multiplier
+            
+        except (AttributeError, TypeError):
+            # Graceful fallback if CPF structure differs
+            personality_multiplier = 1.0
+        
+        # Memory integration - more memories = more context to weave in
+        memory_tokens = min(len(db_memories) * 25, 80) if db_memories else 0
+        
+        # Question type specific adjustments
+        question_multiplier = 1.0
+        if '?' in user_message:
+            if any(phrase in user_message.lower() for phrase in ['how to', 'step by step']):
+                question_multiplier = 1.3  # Process questions need structure
+            elif user_message.count('?') > 1:
+                question_multiplier = 1.4  # Multiple questions need comprehensive answers
+        
+        # Calculate final optimal tokens
+        calculated_tokens = int(
+            base_tokens * 
+            complexity_multiplier * 
+            educational_multiplier * 
+            personality_multiplier * 
+            question_multiplier +
+            memory_tokens
+        )
+        
+        # Reasonable bounds - generous enough to prevent truncation
+        return max(200, min(calculated_tokens, 700))
     
     def _call_anthropic_api(self, complete_context: str, user_message: str, 
                            character: EnhancedCharacter) -> str:
-        """Call Anthropic API with enhanced context"""
+        """Call Anthropic API with enhanced context and dynamic token calculation"""
         
         # Get API configuration
         try:
@@ -151,16 +245,16 @@ class EnhancedResponseGenerator:
             from anthropic import Anthropic
             client = Anthropic(api_key=api_key)
             
-            # Determine max tokens based on response style
-            style_token_map = {
-                "brief": 200,
-                "moderate": 400,
-                "detailed": 600,
-                "comprehensive": 800
-            }
-            max_tokens = style_token_map.get(
-                character.core_attributes.default_response_style.value, 200
+            # Calculate exact tokens needed for this specific response
+            max_tokens = self.calculate_dynamic_response_tokens(
+                character=character,
+                user_message=user_message, 
+                complete_context=complete_context,
+                db_memories=self._last_db_memories
             )
+            
+            # Optional: Add debug info to see token calculation in action
+            # print(f"Dynamic tokens for {character.name}: {max_tokens}")
             
             # Adjust temperature based on character traits
             base_temperature = 0.7
@@ -199,277 +293,150 @@ class EnhancedResponseGenerator:
                 base_response += " I noticed you might be feeling frustrated - let's take this step by step when I'm back online."
         
         elif character_name == "Mase":
-            base_response = f"*connection glitch* Tech problems... but hey, your question about '{user_message[:30]}' is still worth exploring!"
-            if enthusiasm > 0.6:
-                base_response += " This is actually pretty interesting stuff even without the AI magic."
+            base_response = f"Yo, tech hiccup on my end! But hey, that's what happens when you're running on {enthusiasm:.1f} enthusiasm and {patience_desc} patience, right?"
+            if character.dynamic_state.adaptation_mode == "energetic":
+                base_response += " I was totally ready to drop some knowledge on you too!"
         
         elif character_name == "Anna":
-            base_response = f"I'm experiencing technical difficulties, but with {patience_desc} patience, I want to give your question the thoughtful response it deserves."
-            if formality > 0.4:
-                base_response += " Please bear with me while I work through this connection issue."
+            base_response = f"My apologies - I'm experiencing some technical difficulties. But as someone with {patience_desc} patience, I'm not going anywhere."
+            if formality >= 4:
+                base_response += " I shall return momentarily to provide the guidance you seek."
+            else:
+                base_response += " I'll be back to share some wisdom soon!"
         
         elif character_name == "Bee":
-            base_response = f"System bottleneck detected! While I debug this connection issue, I'm still thinking analytically about your request."
-            if character.dynamic_state.adaptation_mode == "challenging":
-                base_response += " This is actually a good lesson in system resilience - want to explore that angle?"
+            base_response = f"Error in API connection - debugging in progress. My {patience_desc} patience levels are handling this gracefully."
+            if character.dynamic_state.adaptation_mode == "analytical":
+                base_response += " Analyzing optimal response patterns for when connectivity resumes."
         
         else:
-            base_response = f"I'm having connection issues, but my enhanced personality ({patience_desc} patience, {formality:.1f} formality) is still here to help!"
+            base_response = f"I'm experiencing connection issues but my {patience_desc} patience keeps me optimistic!"
         
-        if error_reason and "API key" in error_reason:
-            base_response += "\n\n*Note: Administrator needs to configure API access for full AI responses*"
+        if error_reason:
+            base_response += f" (Technical note: {error_reason[:50]}...)"
         
         return base_response
     
-    def _generate_fallback_response(self, character_name: str, user_message: str, 
-                                   error_reason: str) -> str:
-        """Generate fallback response when AI service fails"""
-        
-        fallback_responses = {
-            "Aino": f"Anteeksi (sorry)! I'm having trouble connecting right now. Let's try again - what would you like to learn about Finnish today?",
-            "Mase": f"*connection issues* Hmm, tech problems... but hey, your question about '{user_message[:30]}' is still interesting!",
-            "Anna": f"I'm experiencing some technical difficulties, but your question deserves a thoughtful response. Let me try again in a moment.",
-            "Bee": f"Looks like we hit a system bottleneck. While I debug this, can you tell me more about what you're trying to solve?"
+    def _generate_fallback_response(self, character_name: str, user_message: str, error_reason: str) -> str:
+        """Simple fallback when character object is not available"""
+        fallbacks = {
+            "Aino": f"Anteeksi! Technical issues, but I'll help you learn Finnish soon!",
+            "Mase": f"Tech troubles! But I've got knowledge to drop when I'm back online.",
+            "Anna": f"Having connection issues, but I'll return with practical wisdom shortly.",
+            "Bee": f"Connection error detected - will resume analytical responses momentarily."
         }
         
-        base_response = fallback_responses.get(character_name, "I'm having connection issues, but I'm still here to help!")
-        
-        if "API key" in error_reason:
-            return f"{base_response} (Note: Administrator needs to configure API access)"
-        else:
-            return f"{base_response} (Error: {error_reason[:50]}...)"
+        base = fallbacks.get(character_name, "Connection issues - back soon!")
+        return f"{base} (Error: {error_reason[:30]}...)"
     
-    def _update_character_after_interaction(self, character: EnhancedCharacter, user_id: str,
-                                          user_message: str, response_text: str, 
-                                          user_emotion: EmotionalState) -> None:
-        """Update character state and memory after successful interaction"""
+    def _update_character_after_interaction(self, character: EnhancedCharacter, user_id: str, 
+                                           user_message: str, response_text: str, user_emotion: EmotionalState):
+        """Update character state and memory after interaction"""
         
-        # Update dynamic state
-        character.dynamic_state.messages_this_session += 1
-        
-        # Extract and store new memories
-        self._extract_and_store_memories(character, user_id, user_message, user_emotion)
-        
-        # Update character memory relationships
-        self._update_character_relationships(character, user_message, user_emotion)
-        
-        # Save updated state to database
-        self.db.save_character_state(character, user_id)
-    
-    def _extract_and_store_memories(self, character: EnhancedCharacter, user_id: str,
-                                   user_message: str, user_emotion: EmotionalState) -> None:
-        """Extract meaningful memories from user interaction"""
-        
-        message_lower = user_message.lower()
-        
-        # Preference detection
-        if any(word in message_lower for word in ['like', 'love', 'enjoy', 'prefer']):
-            memory_content = f"User expressed positive sentiment about: {user_message[:50]}"
-            self.db.store_enhanced_memory(
-                character.name, user_id, 'preference', memory_content,
-                importance=7.0, emotional_context=user_emotion.value
-            )
-            character.character_memory.preferred_topics.append(user_message[:30])
-        
-        # Learning struggle detection
-        if any(word in message_lower for word in ['difficult', 'hard', 'confused', 'don\'t understand']):
-            memory_content = f"User struggled with: {user_message[:50]}"
-            self.db.store_enhanced_memory(
-                character.name, user_id, 'learning_pattern', memory_content,
-                importance=8.0, emotional_context=user_emotion.value
-            )
-            character.character_memory.known_weaknesses.append(user_message[:30])
-        
-        # Success detection
-        if any(word in message_lower for word in ['got it', 'understand', 'makes sense', 'thanks']):
-            memory_content = f"User successfully learned: {user_message[:50]}"
-            self.db.store_enhanced_memory(
-                character.name, user_id, 'achievement', memory_content,
-                importance=6.0, emotional_context=user_emotion.value
-            )
-            character.character_memory.known_strengths.append(user_message[:30])
-        
-        # Personal information detection
-        if any(word in message_lower for word in ['my', 'i am', 'i have', 'i work', 'i study']):
-            memory_content = f"Personal info: {user_message[:50]}"
-            self.db.store_enhanced_memory(
-                character.name, user_id, 'fact', memory_content,
-                importance=5.0, emotional_context=user_emotion.value
-            )
-    
-    def _update_character_relationships(self, character: EnhancedCharacter, 
-                                       user_message: str, user_emotion: EmotionalState) -> None:
-        """Update relationship metrics based on interaction"""
-        
-        # Positive emotions increase rapport
-        positive_emotions = [EmotionalState.EXCITED, EmotionalState.ENGAGED, EmotionalState.CURIOUS]
-        if user_emotion in positive_emotions:
-            character.character_memory.rapport_level = min(1.0, 
-                character.character_memory.rapport_level + 0.05)
-            character.character_memory.trust_level = min(1.0,
-                character.character_memory.trust_level + 0.03)
-        
-        # Frustrated emotions need careful handling
-        elif user_emotion == EmotionalState.FRUSTRATED:
-            # Small trust decrease unless we adapt well
-            character.character_memory.trust_level = max(0.0,
-                character.character_memory.trust_level - 0.02)
-        
-        # Detect learning style patterns
-        if any(word in user_message.lower() for word in ['show me', 'example', 'picture']):
-            character.character_memory.learning_style_detected = 'visual'
-        elif any(word in user_message.lower() for word in ['explain', 'tell me', 'say']):
-            character.character_memory.learning_style_detected = 'auditory'
-        elif any(word in user_message.lower() for word in ['try', 'practice', 'do']):
-            character.character_memory.learning_style_detected = 'kinesthetic'
-    
-    def _record_interaction_analytics(self, user_id: str, character_name: str, 
-                                    user_message: str, response_text: str,
-                                    user_emotion: EmotionalState, emotion_confidence: float,
-                                    adaptation_mode: str) -> Dict[str, Any]:
-        """Record detailed analytics for this interaction"""
-        
-        # Simple effectiveness heuristics (could be much more sophisticated)
-        response_length_score = min(1.0, len(response_text) / 200.0)  # Ideal ~200 chars
-        emotion_appropriate_score = emotion_confidence  # How confident we are in emotion detection
-        
-        # Engagement score based on user message characteristics
-        engagement_indicators = ['?', 'how', 'what', 'why', 'cool', 'interesting', 'more']
-        engagement_score = min(1.0, sum(1 for word in engagement_indicators 
-                                       if word in user_message.lower()) / 3.0)
-        
-        # Learning progress indicator (very basic)
-        progress_indicators = ['understand', 'got it', 'makes sense', 'ah', 'oh']
-        progress_score = min(1.0, sum(1 for word in progress_indicators 
-                                     if word in user_message.lower()) / 2.0)
-        
-        # Overall effectiveness
-        effectiveness = (response_length_score + emotion_appropriate_score + engagement_score) / 3.0
-        
-        # Record in database (would need message_id in real implementation)
-        message_id = f"temp_{int(time.time())}"  # Temporary ID
-        
-        self.db.record_learning_interaction(
-            user_id, character_name, message_id, user_emotion,
-            adaptation_mode, effectiveness, engagement_score, progress_score
+        # Update character memory with new interaction
+        memory_content = f"User said: '{user_message[:100]}...' Response given about: {response_text[:50]}..."
+        character.character_memory.store_memory(
+            memory_type="interaction",
+            content=memory_content,
+            importance=self._calculate_memory_importance(user_emotion, user_message),
+            emotional_context=user_emotion.value
         )
         
-        return {
-            'user_emotion': user_emotion.value,
-            'emotion_confidence': emotion_confidence,
-            'adaptation_mode': adaptation_mode,
-            'effectiveness': effectiveness,
-            'engagement_score': engagement_score,
-            'progress_score': progress_score,
-            'response_length': len(response_text)
-        }
+        # Update dynamic state
+        character.dynamic_state.last_interaction = datetime.now()
+        character.dynamic_state.interaction_count += 1
+        
+        # Save updated character state to database
+        self.db.save_character_state(character.name, user_id, character.dynamic_state, character.character_memory)
     
-    def get_character_for_streamlit(self, character_name: str) -> Dict[str, Any]:
-        """Get character data formatted for Streamlit display"""
-        if character_name not in self.characters:
-            return {}
+    def _calculate_memory_importance(self, user_emotion: EmotionalState, user_message: str) -> int:
+        """Calculate importance score for memory storage"""
+        base_importance = 5
         
-        character = self.characters[character_name]
-        
-        return {
-            'name': character.name,
-            'archetype': character.archetype,
-            'description': f"{character.core_attributes.occupation}, age {character.core_attributes.age}",
-            'color': character.color,
-            'knowledge_domains': character.knowledge_domains,
-            'teaching_specialties': character.teaching_specialties,
-            'patience_level': character.core_attributes.patience_level.name,
-            'formality_level': character.core_attributes.formality_level,
-            'enthusiasm_level': character.core_attributes.enthusiasm_level,
-            'default_response_style': character.core_attributes.default_response_style.value
+        # Emotional context affects importance
+        emotion_modifiers = {
+            EmotionalState.FRUSTRATED: 2,  # Remember frustrating interactions
+            EmotionalState.EXCITED: 1,     # Remember exciting moments
+            EmotionalState.CONFUSED: 2,    # Remember confusion to avoid repeating
+            EmotionalState.OVERWHELMED: 3  # Very important to remember overwhelm triggers
         }
+        
+        base_importance += emotion_modifiers.get(user_emotion, 0)
+        
+        # Learning-related interactions are more important
+        learning_keywords = ["learn", "teach", "explain", "help", "understand", "practice"]
+        if any(keyword in user_message.lower() for keyword in learning_keywords):
+            base_importance += 2
+        
+        return min(base_importance, 10)  # Cap at 10
     
-    def run_ab_test_for_user(self, user_id: str, character_name: str, 
-                           experiment_name: str = "patience_level_test") -> str:
-        """Run A/B test for character personality variants"""
+    def _record_interaction_analytics(self, user_id: str, character_name: str, user_message: str, 
+                                    response_text: str, user_emotion: EmotionalState, 
+                                    emotion_confidence: float, adaptation_mode: str) -> Dict[str, Any]:
+        """Record detailed analytics for this interaction"""
         
-        # Check if user is already in experiment
-        variant = self.db.get_user_experiment_variant(user_id, experiment_name)
+        analytics = {
+            "timestamp": datetime.now().isoformat(),
+            "user_id": user_id,
+            "character_name": character_name,
+            "user_message_length": len(user_message.split()),
+            "response_length": len(response_text.split()),
+            "user_emotion": user_emotion.value,
+            "emotion_confidence": emotion_confidence,
+            "adaptation_mode": adaptation_mode,
+            "interaction_type": self._classify_interaction_type(user_message),
+            "educational_content": self._detect_educational_content(user_message),
+            "response_generation_success": not response_text.startswith("[Error"),
+        }
         
-        if variant is None:
-            # Create experiment if it doesn't exist
-            variants = {
-                "high_patience": {
-                    "core_attributes": {
-                        "patience_level": "VERY_HIGH",
-                        "encouragement_frequency": 0.9
-                    }
-                },
-                "moderate_patience": {
-                    "core_attributes": {
-                        "patience_level": "MODERATE", 
-                        "encouragement_frequency": 0.5
-                    }
-                }
-            }
-            
-            try:
-                self.db.create_ab_test_experiment(experiment_name, character_name, variants)
-                variant = self.db.assign_user_to_experiment(user_id, experiment_name)
-            except:
-                variant = "control"
+        # Store analytics in database
+        try:
+            self.db.record_interaction_analytics(analytics)
+        except Exception as e:
+            # Don't let analytics failures break the conversation
+            analytics["analytics_storage_error"] = str(e)
         
-        return variant
+        return analytics
+    
+    def _classify_interaction_type(self, user_message: str) -> str:
+        """Classify the type of interaction for analytics"""
+        message_lower = user_message.lower()
+        
+        if any(word in message_lower for word in ['hi', 'hello', 'hey', 'good morning', 'good evening']):
+            return "greeting"
+        elif '?' in user_message:
+            if any(word in message_lower for word in ['how', 'what', 'why', 'when', 'where']):
+                return "question_educational"
+            else:
+                return "question_general"
+        elif any(word in message_lower for word in ['thank', 'thanks', 'appreciate']):
+            return "gratitude"
+        elif any(word in message_lower for word in ['learn', 'teach', 'practice', 'study']):
+            return "learning_request"
+        else:
+            return "conversation"
+    
+    def _detect_educational_content(self, user_message: str) -> bool:
+        """Detect if the message contains educational content requests"""
+        educational_indicators = [
+            'explain', 'how', 'why', 'what', 'teach', 'learn', 'show', 'help',
+            'understand', 'clarify', 'describe', 'tell me about'
+        ]
+        return any(indicator in user_message.lower() for indicator in educational_indicators)
 
-# Integration function for existing Streamlit app
+    def get_character_analytics(self, character_name: str, user_id: str) -> Dict[str, Any]:
+        """Get analytics for a specific character-user combination"""
+        try:
+            return self.db.get_character_analytics(character_name, user_id)
+        except Exception as e:
+            return {"error": f"Could not retrieve analytics: {str(e)}"}
+
+
+# Standalone function for backward compatibility
 def generate_enhanced_ai_response(character_name: str, user_id: str, user_message: str, 
-                                conversation_history: List[Dict], 
-                                db: EnhancedEduChatDatabase) -> str:
+                                conversation_history: List[Dict], db: EnhancedEduChatDatabase) -> Tuple[str, Dict]:
     """
-    Drop-in replacement for the existing generate_ai_response function
-    
-    This function maintains compatibility with the existing Streamlit app
-    while providing enhanced personality framework capabilities.
+    Standalone function for backward compatibility with existing code
     """
-    
-    # Initialize enhanced response generator
-    if 'enhanced_generator' not in st.session_state:
-        st.session_state.enhanced_generator = EnhancedResponseGenerator(db)
-    
-    generator = st.session_state.enhanced_generator
-    
-    # Generate enhanced response
-    response_text, metadata = generator.generate_enhanced_response(
-        character_name, user_id, user_message, conversation_history
-    )
-    
-    # Display debug info in sidebar if enabled
-    if st.sidebar.checkbox("Show Enhanced Character Debug", value=False, key=f"debug_{character_name}_{user_id}"):
-        with st.sidebar.expander(f"Debug: {character_name} Response"):
-            st.json(metadata)
-            
-            character_info = generator.get_character_for_streamlit(character_name)
-            st.write("**Character State:**")
-            st.write(f"Patience: {character_info.get('patience_level', 'Unknown')}")
-            st.write(f"Formality: {character_info.get('formality_level', 0):.2f}")
-            st.write(f"Enthusiasm: {character_info.get('enthusiasm_level', 0):.2f}")
-    
-    return response_text
-
-if __name__ == "__main__":
-    # Test the enhanced response generator
-    from enhanced_database_models import EnhancedEduChatDatabase
-    
-    db = EnhancedEduChatDatabase("test_enhanced.db")
     generator = EnhancedResponseGenerator(db)
-    
-    # Test response generation
-    test_message = "I'm really confused about Finnish grammar"
-    test_history = [
-        {"sender": "You", "content": "Hi Aino!", "timestamp": datetime.now()},
-        {"sender": "Aino", "content": "Hei! Nice to meet you!", "timestamp": datetime.now()}
-    ]
-    
-    response, metadata = generator.generate_enhanced_response(
-        "Aino", "test_user", test_message, test_history
-    )
-    
-    print(f"Response: {response}")
-    print(f"Metadata: {metadata}")
-    
-    print("\nEnhanced response generation system ready!")
+    return generator.generate_enhanced_response(character_name, user_id, user_message, conversation_history)
