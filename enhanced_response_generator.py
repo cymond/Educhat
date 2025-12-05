@@ -431,6 +431,110 @@ class EnhancedResponseGenerator:
         except Exception as e:
             return {"error": f"Could not retrieve analytics: {str(e)}"}
 
+    def get_character_for_streamlit(self, character_name: str) -> Dict[str, Any]:
+        """Get character information for Streamlit UI display"""
+        try:
+            if character_name in self.characters:
+                character = self.characters[character_name]
+                
+                # Extract character info for UI display
+                character_info = {
+                    'name': character.name,
+                    'archetype': getattr(character, 'archetype', character_name),
+                    'description': getattr(character.core_attributes, 'occupation', f'{character_name} - AI Learning Companion'),
+                    'patience_level': character.core_attributes.patience_level.name.lower().replace('_', ' '),
+                    'formality_level': getattr(character.core_attributes, 'formality_level', 3),
+                    'enthusiasm_level': getattr(character.core_attributes, 'enthusiasm_level', 0.5),
+                    'humor_tendency': getattr(character.core_attributes, 'humor_tendency', 0.3),
+                    'default_response_style': character.core_attributes.default_response_style.value,
+                    'personality_traits': getattr(character, 'personality_summary', f'{character_name} personality'),
+                    'knowledge_domains': getattr(character, 'knowledge_areas', [f'{character_name} expertise'])
+                }
+                
+                return character_info
+                
+            else:
+                # Fallback character info
+                fallback_info = {
+                    'Aino': {
+                        'name': 'Aino',
+                        'archetype': 'Cultural Teacher',
+                        'description': 'Native Finnish speaker and cultural guide',
+                        'patience_level': 'very high',
+                        'formality_level': 4,
+                        'enthusiasm_level': 0.8,
+                        'humor_tendency': 0.3,
+                        'default_response_style': 'detailed',
+                        'personality_traits': 'Patient, encouraging, culturally insightful',
+                        'knowledge_domains': ['Finnish language', 'Nordic culture', 'pronunciation']
+                    },
+                    'Mase': {
+                        'name': 'Mase',
+                        'archetype': 'Peer Educator',
+                        'description': 'Young knowledge enthusiast with casual wisdom',
+                        'patience_level': 'moderate',
+                        'formality_level': 2,
+                        'enthusiasm_level': 0.6,
+                        'humor_tendency': 0.8,
+                        'default_response_style': 'brief',
+                        'personality_traits': 'Witty, casual, surprisingly knowledgeable',
+                        'knowledge_domains': ['Science', 'Technology', 'Pop culture', 'Trivia']
+                    },
+                    'Anna': {
+                        'name': 'Anna',
+                        'archetype': 'Wise Mentor',
+                        'description': 'Experienced advisor with practical wisdom',
+                        'patience_level': 'very high',
+                        'formality_level': 4,
+                        'enthusiasm_level': 0.5,
+                        'humor_tendency': 0.2,
+                        'default_response_style': 'moderate',
+                        'personality_traits': 'Wise, practical, calm, supportive',
+                        'knowledge_domains': ['Life advice', 'Finance', 'Health', 'Parenting']
+                    },
+                    'Bee': {
+                        'name': 'Bee',
+                        'archetype': 'Technical Expert',
+                        'description': 'Data scientist and analytical thinker',
+                        'patience_level': 'moderate',
+                        'formality_level': 3,
+                        'enthusiasm_level': 0.7,
+                        'humor_tendency': 0.4,
+                        'default_response_style': 'detailed',
+                        'personality_traits': 'Technical, athletic, analytical, precise',
+                        'knowledge_domains': ['Data science', 'Programming', 'Analytics', 'Sports']
+                    }
+                }
+                
+                return fallback_info.get(character_name, {
+                    'name': character_name,
+                    'archetype': 'AI Companion',
+                    'description': 'Helpful learning companion',
+                    'patience_level': 'moderate',
+                    'formality_level': 3,
+                    'enthusiasm_level': 0.5,
+                    'humor_tendency': 0.3,
+                    'default_response_style': 'moderate',
+                    'personality_traits': 'Helpful and adaptive',
+                    'knowledge_domains': ['General knowledge']
+                })
+                
+        except Exception as e:
+            # Ultra-safe fallback
+            return {
+                'name': character_name,
+                'archetype': 'AI Companion',
+                'description': 'Helpful learning companion',
+                'patience_level': 'moderate',
+                'formality_level': 3,
+                'enthusiasm_level': 0.5,
+                'humor_tendency': 0.3,
+                'default_response_style': 'moderate',
+                'personality_traits': 'Helpful and adaptive',
+                'knowledge_domains': ['General knowledge'],
+                'error': str(e)
+            }
+
 
 # Standalone function for backward compatibility
 def generate_enhanced_ai_response(character_name: str, user_id: str, user_message: str, 
