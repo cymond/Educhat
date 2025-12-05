@@ -153,10 +153,10 @@ class EnhancedResponseGenerator:
             
             # Determine max tokens based on response style
             style_token_map = {
-                "brief": 100,
-                "moderate": 200,
-                "detailed": 300,
-                "comprehensive": 400
+                "brief": 200,
+                "moderate": 400,
+                "detailed": 600,
+                "comprehensive": 800
             }
             max_tokens = style_token_map.get(
                 character.core_attributes.default_response_style.value, 200
